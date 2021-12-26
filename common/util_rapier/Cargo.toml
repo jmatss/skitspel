@@ -1,0 +1,16 @@
+[package]
+name = "util_rapier"
+version = "0.1.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bevy = "0.5.0"
+bevy_prototype_lyon = "0.3.1"
+bevy_rapier2d = "0.11.0"
+lyon_path = "0.17.7"
+rand = "0.8.4"
+
+skitspel = { path = "../skitspel" }
+util_bevy = { path = "../util_bevy" }

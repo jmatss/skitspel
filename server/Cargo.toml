@@ -1,0 +1,23 @@
+[package]
+name = "server"
+version = "0.1.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bevy = "0.5.0"
+bevy_prototype_lyon = "0.3.1"
+bevy_rapier2d = "0.11.0"
+futures-util = "0.3.17"
+num_cpus = "1.13.0"
+rand = "0.8.4"
+smol = "1.2.5"
+
+hockey = { path = "../plugins/hockey" }
+skitspel = { path = "../common/skitspel" }
+selection_menu = { path = "../plugins/selection_menu" }
+start_menu = { path = "../plugins/start_menu" }
+network = { path = "../plugins/network" }
+push = { path = "../plugins/push" }
+util_bevy = { path = "../common/util_bevy" }

@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "skitspel",
+    "util_bevy",
+    "util_rapier"
+]

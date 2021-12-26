@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "hockey",
+    "selection_menu",
+    "start_menu",
+    "network",
+    "push"
+]
