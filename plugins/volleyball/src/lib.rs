@@ -554,17 +554,20 @@ fn setup_score(mut commands: Commands) {
 }
 
 fn setup_players(mut commands: Commands, mut players: ResMut<Players>) {
-    let mut left_spawn_positions = SPAWN_POSITIONS_LEFT;
+    let mut left_spawn_positions = SPAWN_POSITIONS_LEFT.to_vec();
     left_spawn_positions.shuffle(&mut rand::thread_rng());
-    let mut right_spawn_positions = SPAWN_POSITIONS_RIGHT;
+    let mut right_spawn_positions = SPAWN_POSITIONS_RIGHT.to_vec();
     right_spawn_positions.shuffle(&mut rand::thread_rng());
 
-    let half_idx = players.len() / 2;
-    for (i, player) in players.values_mut().enumerate() {
+    let mut players_shuffled = players.values_mut().collect::<Vec<_>>();
+    players_shuffled.shuffle(&mut rand::thread_rng());
+
+    let half_idx = players_shuffled.len() / 2;
+    for (i, player) in players_shuffled.into_iter().enumerate() {
         let (team, spawn_pos) = if i < half_idx {
-            (Team::Left, left_spawn_positions[i])
+            (Team::Left, left_spawn_positions.pop().unwrap())
         } else {
-            (Team::Right, right_spawn_positions[i % half_idx])
+            (Team::Right, right_spawn_positions.pop().unwrap())
         };
 
         player.reset_action();
