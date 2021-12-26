@@ -410,9 +410,16 @@ fn setup_menu(mut commands: Commands, players: Res<Players>, fonts: Res<Fonts>) 
 }
 
 fn setup_selectable_games(mut commands: Commands, fonts: Res<Fonts>, games: Res<Games>) {
+    let selected_idx = if games.len() <= 1 {
+        0
+    } else if games.len() % 2 == 0 {
+        games.len() / 2 - 1
+    } else {
+        games.len() / 2
+    };
     commands
         .spawn()
-        .insert(SelectedGame(0))
+        .insert(SelectedGame(selected_idx))
         .insert(GameSelectionPlugin);
 
     let bold_font = fonts.bold.clone();
@@ -450,7 +457,7 @@ fn setup_selectable_games(mut commands: Commands, fonts: Res<Fonts>, games: Res<
         .insert(GameSelectionPlugin);
 
     for (idx, game) in games.iter().enumerate() {
-        let pos = Vec2::new(SELECTABLE_GAMES_SPACING * idx as f32, 0.0);
+        let pos = Vec2::ZERO;
         spawn_selected_game(&mut commands, game, idx, pos, bold_font.clone());
     }
 }
