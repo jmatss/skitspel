@@ -19,6 +19,7 @@ pub enum GameState {
     /// The currently active game.
     PushGame,
     HockeyGame,
+    VolleyBallGame,
 }
 
 /// The units used in the the rapier is recommended to represent SI units.

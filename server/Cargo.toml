@@ -16,8 +16,9 @@ smol = "1.2.5"
 
 hockey = { path = "../plugins/hockey" }
 skitspel = { path = "../common/skitspel" }
-selection_menu = { path = "../plugins/selection_menu" }
-start_menu = { path = "../plugins/start_menu" }
 network = { path = "../plugins/network" }
 push = { path = "../plugins/push" }
+selection_menu = { path = "../plugins/selection_menu" }
+start_menu = { path = "../plugins/start_menu" }
 util_bevy = { path = "../common/util_bevy" }
+volleyball = { path = "../plugins/volleyball" }

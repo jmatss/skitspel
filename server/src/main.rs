@@ -29,6 +29,7 @@ use network::{
 use push::PushGamePlugin;
 use selection_menu::GameSelectionPlugin;
 use start_menu::MenuPlugin;
+use volleyball::VolleyBallGamePlugin;
 
 fn main() -> io::Result<()> {
     std::env::set_var("SMOL_THREADS", num_cpus::get().to_string());
@@ -57,6 +58,7 @@ fn main() -> io::Result<()> {
             .add_plugin(GameSelectionPlugin)
             .add_plugin(PushGamePlugin)
             .add_plugin(HockeyGamePlugin)
+            .add_plugin(VolleyBallGamePlugin)
             .add_state(GameState::StartMenu)
             .add_startup_system(common_setup.system())
             .add_system(camera_scaling_fix.system())
@@ -106,8 +108,22 @@ pub fn common_setup(
             textures
                 .add(
                     Texture::from_buffer(
-                        // TODO: Change to football screenshot.
                         include_bytes!("..\\assets\\hockey.png"),
+                        ImageType::Extension("png"),
+                    )
+                    .unwrap(),
+                )
+                .into(),
+        ),
+    });
+    games.push(Game {
+        name: "Volleyball",
+        game_state: GameState::VolleyBallGame,
+        screenshot: materials.add(
+            textures
+                .add(
+                    Texture::from_buffer(
+                        include_bytes!("..\\assets\\volleyball.png"),
                         ImageType::Extension("png"),
                     )
                     .unwrap(),
