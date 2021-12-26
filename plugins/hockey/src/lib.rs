@@ -642,7 +642,7 @@ fn setup_screen_text(mut commands: Commands, players: Res<Players>, fonts: Res<F
     let empty_player_vote = PlayerVote::default();
     let required_amount = (players.len() / 2) + 1;
 
-    let spin_text = Text::with_section(
+    let dash_text = Text::with_section(
         DASH_TEXT,
         TextStyle {
             font: regular_font.clone(),
@@ -656,7 +656,7 @@ fn setup_screen_text(mut commands: Commands, players: Res<Players>, fonts: Res<F
     );
 
     let dash_text_bundle = Text2dBundle {
-        text: spin_text,
+        text: dash_text,
         transform: Transform::from_xyz(0.0, GAME_HEIGHT / 4.0, 0.0),
         ..Default::default()
     };
@@ -941,7 +941,7 @@ fn setup_map(
     let bottom_right_pos = Vec2::new(GAME_WIDTH / 4.0, -GAME_HEIGHT / 2.0 + thickness / 2.0);
     spawn_post(&mut commands, bottom_right_pos, post_radius, grey_color);
 
-    let goal_width = thickness;
+    let goal_width = thickness + 1.0;
     let goal_height = 400.0;
 
     let left_goal_pos = Vec2::new(-GAME_WIDTH / 2.0 + goal_width / 2.0, 0.0);
