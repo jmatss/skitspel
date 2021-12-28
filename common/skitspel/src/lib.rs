@@ -20,6 +20,7 @@ pub enum GameState {
     PushGame,
     HockeyGame,
     VolleyBallGame,
+    AchtungGame,
 }
 
 /// The units used in the the rapier is recommended to represent SI units.

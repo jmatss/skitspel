@@ -5,10 +5,9 @@ use bevy::{
     math::{Quat, Vec2},
     prelude::{
         AppBuilder, Assets, Color, Commands, Entity, EventReader, EventWriter, HorizontalAlign,
-        IntoSystem, Local, Mesh, ParallelSystemDescriptorCoercion, Plugin, Query, Res, ResMut,
-        Shader, State, SystemSet, Transform, VerticalAlign, With,
+        IntoSystem, Local, Mesh, ParallelSystemDescriptorCoercion, Plugin, Query, RenderPipelines,
+        Res, ResMut, State, SystemSet, Transform, VerticalAlign, With,
     },
-    render::pipeline::PipelineDescriptor,
     text::{Text, Text2dBundle, TextAlignment, TextSection, TextStyle},
 };
 use bevy_prototype_lyon::prelude::{DrawMode, FillOptions, GeometryBuilder, ShapeColors};
@@ -361,8 +360,7 @@ fn setup_screen_text(mut commands: Commands, players: Res<Players>, fonts: Res<F
 fn setup_map(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut pipelines: ResMut<Assets<PipelineDescriptor>>,
-    mut shaders: ResMut<Assets<Shader>>,
+    render_pipelines: Res<RenderPipelines>,
 ) {
     let red_color = Color::rgb(1.0, 0.1, 0.1);
     let grey_color = Color::rgb(0.3, 0.3, 0.3);
@@ -370,8 +368,7 @@ fn setup_map(
     spawn_border_walls(
         &mut commands,
         &mut meshes,
-        &mut pipelines,
-        &mut shaders,
+        render_pipelines.clone(),
         red_color,
         10.0,
         ColliderType::Sensor,

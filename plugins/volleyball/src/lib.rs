@@ -5,11 +5,7 @@ use bevy::{
         AppBuilder, Assets, BuildChildren, Changed, Color, Commands, Entity, EventReader,
         EventWriter, Handle, HorizontalAlign, IntoSystem, Local, Mesh, MeshBundle,
         ParallelSystemDescriptorCoercion, Plugin, Query, QuerySet, RenderPipelines, Res, ResMut,
-        Shader, State, SystemSet, Transform, VerticalAlign, With,
-    },
-    render::{
-        pipeline::{PipelineDescriptor, RenderPipeline},
-        shader::{ShaderStage, ShaderStages},
+        State, SystemSet, Transform, VerticalAlign, With,
     },
     text::{Font, Text, Text2dBundle, TextAlignment, TextSection, TextStyle},
 };
@@ -34,10 +30,7 @@ use util_bevy::{
     create_vote_text_sections, despawn_entity, despawn_system, AsBevyColor, Fonts, PlayerVote,
     Shape, VoteEvent,
 };
-use util_rapier::{
-    create_path_with_thickness, move_players, spawn_border_walls, spawn_player, FRAGMENT_SHADER,
-    VERTEX_SHADER,
-};
+use util_rapier::{create_path_with_thickness, move_players, spawn_border_walls, spawn_player};
 
 // Regarding collisions between the invisible wall to prevent players from jumping
 // over to the other side: The ball will be only assigned to collision group 0.
@@ -578,8 +571,7 @@ fn setup_players(mut commands: Commands, mut players: ResMut<Players>) {
 fn setup_map(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut pipelines: ResMut<Assets<PipelineDescriptor>>,
-    mut shaders: ResMut<Assets<Shader>>,
+    render_pipelines: Res<RenderPipelines>,
 ) {
     let wall_thickness = 10.0;
     let net_thickness = 20.0;
@@ -587,19 +579,10 @@ fn setup_map(
     let grey_color = Color::rgb(0.3, 0.3, 0.3);
     let white_color = Color::rgb(1.0, 1.0, 1.0);
 
-    let pipeline_handle = pipelines.add(PipelineDescriptor::default_config(ShaderStages {
-        vertex: shaders.add(Shader::from_glsl(ShaderStage::Vertex, VERTEX_SHADER)),
-        fragment: Some(shaders.add(Shader::from_glsl(ShaderStage::Fragment, FRAGMENT_SHADER))),
-    }));
-
-    let render_pipelines =
-        RenderPipelines::from_pipelines(vec![RenderPipeline::new(pipeline_handle)]);
-
     spawn_border_walls(
         &mut commands,
         &mut meshes,
-        &mut pipelines,
-        &mut shaders,
+        render_pipelines.clone(),
         grey_color,
         wall_thickness,
         ColliderType::Solid,
@@ -626,7 +609,7 @@ fn setup_map(
 
     let mut entity_commands = commands.spawn_bundle(MeshBundle {
         mesh: meshes.add(mesh),
-        render_pipelines,
+        render_pipelines: render_pipelines.clone(),
         ..Default::default()
     });
 

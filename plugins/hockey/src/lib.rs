@@ -7,12 +7,8 @@ use bevy::{
         AppBuilder, Assets, BuildChildren, Changed, Children, Color, Commands, CoreStage, Entity,
         EventReader, EventWriter, GlobalTransform, Handle, HorizontalAlign, IntoSystem, Local,
         Mesh, MeshBundle, ParallelSystemDescriptorCoercion, Plugin, Query, QuerySet,
-        RenderPipelines, Res, ResMut, Shader, State, SystemSet, SystemStage, Transform,
-        VerticalAlign, With,
-    },
-    render::{
-        pipeline::{PipelineDescriptor, RenderPipeline},
-        shader::{ShaderStage, ShaderStages},
+        RenderPipelines, Res, ResMut, State, SystemSet, SystemStage, Transform, VerticalAlign,
+        With,
     },
     text::{Font, Text, Text2dBundle, TextAlignment, TextSection, TextStyle},
 };
@@ -35,10 +31,7 @@ use util_bevy::{
     create_vote_text_sections, despawn_entity, despawn_system, AsBevyColor, Fonts, PlayerVote,
     Shape, VoteEvent,
 };
-use util_rapier::{
-    create_circle_points, create_path_with_thickness, move_players, spawn_player, FRAGMENT_SHADER,
-    VERTEX_SHADER,
-};
+use util_rapier::{create_circle_points, create_path_with_thickness, move_players, spawn_player};
 
 const GAME_STATE: GameState = GameState::HockeyGame;
 
@@ -759,8 +752,7 @@ fn setup_players(mut commands: Commands, mut players: ResMut<Players>) {
 fn setup_map(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut pipelines: ResMut<Assets<PipelineDescriptor>>,
-    mut shaders: ResMut<Assets<Shader>>,
+    render_pipelines: Res<RenderPipelines>,
 ) {
     let thickness = 10.0;
     let ht = thickness / 2.0;
@@ -771,14 +763,6 @@ fn setup_map(
     let red_color = Color::rgb(1.0, 0.1, 0.1);
     let grey_color = Color::rgb(0.3, 0.3, 0.3);
     let white_color = Color::rgb(1.0, 1.0, 1.0);
-
-    let pipeline_handle = pipelines.add(PipelineDescriptor::default_config(ShaderStages {
-        vertex: shaders.add(Shader::from_glsl(ShaderStage::Vertex, VERTEX_SHADER)),
-        fragment: Some(shaders.add(Shader::from_glsl(ShaderStage::Fragment, FRAGMENT_SHADER))),
-    }));
-
-    let render_pipelines =
-        RenderPipelines::from_pipelines(vec![RenderPipeline::new(pipeline_handle)]);
 
     let top_wall_vertices = [
         Vec2::new(
@@ -922,7 +906,7 @@ fn setup_map(
     spawn_rink_corner(
         &mut commands,
         &mut meshes,
-        render_pipelines,
+        render_pipelines.clone(),
         corner_radius,
         bottom_left_pos,
         start_angle,

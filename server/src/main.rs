@@ -1,11 +1,14 @@
 use std::sync::{Arc, Mutex};
 
+use achtung::AchtungGamePlugin;
 use bevy::{
     app::Events,
     input::{keyboard::KeyboardInput, ElementState},
     prelude::*,
     render::{
         camera::{Camera, OrthographicProjection, ScalingMode},
+        pipeline::{PipelineDescriptor, RenderPipeline},
+        shader::{ShaderStage, ShaderStages},
         texture::ImageType,
     },
     window::{WindowMode, WindowResized},
@@ -59,6 +62,7 @@ fn main() -> io::Result<()> {
             .add_plugin(PushGamePlugin)
             .add_plugin(HockeyGamePlugin)
             .add_plugin(VolleyBallGamePlugin)
+            .add_plugin(AchtungGamePlugin)
             .add_state(GameState::StartMenu)
             .add_startup_system(common_setup.system())
             .add_system(camera_scaling_fix.system())
@@ -70,10 +74,13 @@ fn main() -> io::Result<()> {
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn common_setup(
     mut commands: Commands,
     mut font_assets: ResMut<Assets<Font>>,
     mut textures: ResMut<Assets<Texture>>,
+    mut pipelines: ResMut<Assets<PipelineDescriptor>>,
+    mut shaders: ResMut<Assets<Shader>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut configuration: ResMut<RapierConfiguration>,
     mut fonts: ResMut<Fonts>,
@@ -131,6 +138,14 @@ pub fn common_setup(
                 .into(),
         ),
     });
+
+    let pipeline_handle = pipelines.add(PipelineDescriptor::default_config(ShaderStages {
+        vertex: shaders.add(Shader::from_glsl(ShaderStage::Vertex, VERTEX_SHADER)),
+        fragment: Some(shaders.add(Shader::from_glsl(ShaderStage::Fragment, FRAGMENT_SHADER))),
+    }));
+    commands.insert_resource(RenderPipelines::from_pipelines(vec![RenderPipeline::new(
+        pipeline_handle,
+    )]));
 
     configuration.scale = RAPIER_SCALE_FACTOR;
     configuration.gravity = [0.0, 0.0].into();
@@ -275,3 +290,29 @@ fn camera_scaling_fix(
         }
     }
 }
+
+pub const VERTEX_SHADER: &str = r"
+#version 450
+layout(location = 0) in vec2 Vertex_Position;
+layout(location = 1) in vec4 Vertex_Color;
+layout(location = 1) out vec4 v_Color;
+layout(set = 0, binding = 0) uniform CameraViewProj {
+    mat4 ViewProj;
+};
+layout(set = 1, binding = 0) uniform Transform {
+    mat4 Model;
+};
+void main() {
+    v_Color = Vertex_Color;
+    gl_Position = ViewProj * Model * vec4(Vertex_Position, 0.0, 1.0);
+}
+";
+
+pub const FRAGMENT_SHADER: &str = r"
+#version 450
+layout(location = 1) in vec4 v_Color;
+layout(location = 0) out vec4 o_Target;
+void main() {
+    o_Target = v_Color;
+}
+";

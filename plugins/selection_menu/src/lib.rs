@@ -217,7 +217,7 @@ fn handle_exit_event(
         player_exit_vote.set_total_amount(total_amount_after);
 
         let required_amount = (player_exit_vote.total_amount() / 2) + 1;
-        if voted_amount_after >= required_amount {
+        if voted_amount_after >= required_amount && total_amount_after >= 2 {
             game_state.set(GameState::StartMenu).unwrap();
         } else {
             let font = fonts.regular.clone();

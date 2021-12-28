@@ -5,9 +5,9 @@ use bevy::{
     prelude::{
         Assets, BuildChildren, Children, Color, Commands, Entity, EventReader, EventWriter, Handle,
         HorizontalAlign, IntoSystem, Local, Mesh, ParallelSystemDescriptorCoercion, Plugin, Query,
-        Res, ResMut, Shader, State, SystemSet, Transform, VerticalAlign,
+        RenderPipelines, Res, ResMut, State, SystemSet, Transform, VerticalAlign,
     },
-    render::{mesh::VertexAttributeValues, pipeline::PipelineDescriptor},
+    render::mesh::VertexAttributeValues,
     text::{Font, Text, Text2dBundle, TextAlignment, TextSection, TextStyle},
 };
 use bevy_rapier2d::prelude::ColliderType;
@@ -294,8 +294,7 @@ fn setup_menu(
     mut commands: Commands,
     mut players: ResMut<Players>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut pipelines: ResMut<Assets<PipelineDescriptor>>,
-    mut shaders: ResMut<Assets<Shader>>,
+    render_pipelines: Res<RenderPipelines>,
     fonts: Res<Fonts>,
 ) {
     let bold_font = fonts.bold.clone();
@@ -308,8 +307,7 @@ fn setup_menu(
     spawn_border_walls(
         &mut commands,
         &mut meshes,
-        &mut pipelines,
-        &mut shaders,
+        render_pipelines.clone(),
         grey_color,
         10.0,
         ColliderType::Solid,
