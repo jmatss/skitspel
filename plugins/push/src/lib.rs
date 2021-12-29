@@ -2,7 +2,7 @@ use std::cmp::Reverse;
 
 use bevy::{
     core::Time,
-    math::{Quat, Vec2},
+    math::Vec2,
     prelude::{
         AppBuilder, Assets, Color, Commands, Entity, EventReader, EventWriter, HorizontalAlign,
         IntoSystem, Local, Mesh, ParallelSystemDescriptorCoercion, Plugin, Query, RenderPipelines,
@@ -12,23 +12,22 @@ use bevy::{
 };
 use bevy_prototype_lyon::prelude::{DrawMode, FillOptions, GeometryBuilder, ShapeColors};
 use bevy_rapier2d::{
-    na::{Isometry, UnitComplex},
     physics::{ColliderBundle, IntoEntity, RigidBodyBundle},
     prelude::{
-        ActiveEvents, ColliderFlags, ColliderMassProps, ColliderMaterial, ColliderPosition,
-        ColliderShape, ColliderType, IntersectionEvent, Real, RigidBodyActivation,
-        RigidBodyDamping, RigidBodyMassProps, RigidBodyType, RigidBodyVelocity,
+        ActiveEvents, ColliderFlags, ColliderMassProps, ColliderMaterial, ColliderShape,
+        ColliderType, IntersectionEvent, RigidBodyActivation, RigidBodyDamping, RigidBodyMassProps,
+        RigidBodyType, RigidBodyVelocity,
     },
 };
-
 use rand::prelude::SliceRandom;
+
 use skitspel::{
     ActionEvent, DisconnectedPlayers, GameState, PlayerId, Players, GAME_HEIGHT, GAME_WIDTH,
     MAX_PLAYERS, PLAYER_RADIUS, RAPIER_SCALE_FACTOR, TORQUE_ACCEL_AMOUNT,
 };
 use util_bevy::{
-    create_vote_text_sections, despawn_entity, despawn_system, AsBevyColor, Fonts, PlayerVote,
-    Shape, VoteEvent,
+    create_vote_text_sections, despawn_entity, despawn_system, handle_start_timer,
+    setup_start_timer, AsBevyColor, Fonts, PlayerVote, Shape, StartTimer, VoteEvent,
 };
 use util_rapier::{move_players, spawn_border_walls, spawn_player};
 
@@ -56,9 +55,21 @@ struct ScoreText;
 const SPIN_TEXT: &str = "Press A to spin\n";
 const EXIT_TEXT: &str = "Press B to go back to main menu";
 
+/// How long the timer between rounds are in seconds.
+const START_TIMER_TIME: usize = 3;
+
 /// Tag used on the exit text.
 struct ExitText;
 
+/// Tag used on the pillar in the middle. It seems to be some problems with the
+/// z-ordering in bevy, so the countdown StartText isn't being displayed on top
+/// of the pillar.
+///
+/// A temporary hack is implemented to remove the `DeathPillar` during the countdown
+/// and then spawn it in when the game starts.
+struct DeathPillar;
+
+#[derive(Debug, Default)]
 pub struct PushGamePlugin;
 
 impl Plugin for PushGamePlugin {
@@ -67,6 +78,7 @@ impl Plugin for PushGamePlugin {
             SystemSet::on_enter(GAME_STATE)
                 .with_system(reset_votes.system())
                 .with_system(setup_map.system())
+                .with_system(setup_start_timer::<PushGamePlugin, START_TIMER_TIME>.system())
                 .with_system(setup_screen_text.system()),
         )
         .add_system_set(
@@ -76,7 +88,9 @@ impl Plugin for PushGamePlugin {
                 .with_system(handle_exit_event.system().after("vote"))
                 .with_system(handle_winner.system())
                 .with_system(update_scoreboard.system())
-                .with_system(reset_players.system())
+                .with_system(reset_players.system().label("reset"))
+                .with_system(handle_death_pillar.system().label("pillar").after("reset"))
+                .with_system(handle_start_timer.system().after("pillar"))
                 .with_system(move_players.system())
                 .with_system(spin_players.system())
                 .with_system(handle_death.system()),
@@ -116,6 +130,7 @@ fn reset_players(
     mut commands: Commands,
     mut players: ResMut<Players>,
     players_alive_query: Query<Entity, With<PlayerId>>,
+    mut start_timer_query: Query<&mut StartTimer>,
 ) {
     if players_alive_query.iter().count() <= 1 {
         // Remove any players that are still alive.
@@ -142,6 +157,8 @@ fn reset_players(
             )
             .insert(PushGamePlugin);
         }
+
+        start_timer_query.single_mut().unwrap().reset();
     }
 }
 
@@ -225,7 +242,12 @@ fn handle_death(
     mut intersection_event: EventReader<IntersectionEvent>,
     players_query: Query<Entity, With<PlayerId>>,
     death_walls_query: Query<Entity, With<DeathCollider>>,
+    start_timer_query: Query<&StartTimer>,
 ) {
+    if !start_timer_query.single().unwrap().finished() {
+        return;
+    }
+
     for intersection in intersection_event.iter() {
         if intersection.intersecting {
             let entity_a = intersection.collider1.entity();
@@ -236,6 +258,30 @@ fn handle_death(
             {
                 despawn_entity(&mut commands, entity_b);
             }
+        }
+    }
+}
+
+/// It seems to be some problems with the z-ordering in bevy, so the countdown
+/// StartText isn't being displayed on top of the pillar in the middle.
+///
+/// A temporary hack is implemented to remove the `DeathPillar` during the countdown
+/// and then spawn it in when the game starts.
+fn handle_death_pillar(
+    mut commands: Commands,
+    death_walls_query: Query<(Entity, &DeathPillar)>,
+    start_timer_query: Query<&StartTimer>,
+) {
+    let start_timer = start_timer_query.single().unwrap();
+    if start_timer.just_finished() {
+        let pos = Vec2::ZERO;
+        let radius = 120.0;
+        let red_color = Color::rgb(1.0, 0.1, 0.1);
+        spawn_pillar_death(&mut commands, pos, radius, red_color);
+    } else if start_timer.elapsed_secs() == 0.0 {
+        // True if just reset, remove pillar.
+        for (entity, _) in death_walls_query.iter() {
+            despawn_entity(&mut commands, entity);
         }
     }
 }
@@ -385,9 +431,6 @@ fn setup_map(
     for pos in positions {
         spawn_pillar_wall(&mut commands, pos, 120.0, grey_color);
     }
-
-    let position = Vec2::new(0.0, 0.0);
-    spawn_pillar_death(&mut commands, position, 120.0, red_color);
 }
 
 fn spawn_pillar_wall(commands: &mut Commands, mut pos: Vec2, mut radius: f32, color: Color) {
@@ -432,15 +475,11 @@ fn spawn_pillar_wall(commands: &mut Commands, mut pos: Vec2, mut radius: f32, co
 }
 
 fn spawn_pillar_death(commands: &mut Commands, mut pos: Vec2, mut radius: f32, color: Color) {
-    let angle = std::f32::consts::FRAC_PI_4;
-    let mut transform = Transform::from_xyz(pos.x, pos.y, 0.0);
-    transform.rotate(Quat::from_rotation_z(angle));
-
     let shape = GeometryBuilder::build_as(
         &Shape::circle(radius, Vec2::ZERO),
         ShapeColors::new(color),
         DrawMode::Fill(FillOptions::DEFAULT),
-        transform,
+        Transform::from_xyz(pos.x, pos.y, 0.0),
     );
 
     pos /= RAPIER_SCALE_FACTOR;
@@ -470,7 +509,6 @@ fn spawn_pillar_death(commands: &mut Commands, mut pos: Vec2, mut radius: f32, c
             ..Default::default()
         },
         mass_properties: ColliderMassProps::Density(1.0),
-        position: ColliderPosition(Isometry::<Real, UnitComplex<Real>, 2>::rotation(angle)),
         ..Default::default()
     };
 
@@ -479,5 +517,6 @@ fn spawn_pillar_death(commands: &mut Commands, mut pos: Vec2, mut radius: f32, c
         .insert_bundle(shape)
         .insert_bundle(collider)
         .insert(DeathCollider)
+        .insert(DeathPillar)
         .insert(PushGamePlugin);
 }

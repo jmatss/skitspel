@@ -31,8 +31,8 @@ use skitspel::{
     ACCEL_AMOUNT, GAME_HEIGHT, GAME_WIDTH, PLAYER_RADIUS, RAPIER_SCALE_FACTOR,
 };
 use util_bevy::{
-    create_vote_text_sections, despawn_entity, despawn_system, AsBevyColor, Fonts, PlayerVote,
-    Shape, VoteEvent,
+    create_vote_text_sections, despawn_entity, despawn_system, handle_start_timer,
+    setup_start_timer, AsBevyColor, Fonts, PlayerVote, Shape, StartTimer, VoteEvent,
 };
 use util_rapier::{create_circle_points, create_path_with_thickness, move_players, spawn_player};
 
@@ -64,6 +64,9 @@ const EXIT_TEXT: &str = "Press B to go back to main menu";
 /// The height and width of the dash cooldown UI under the players.
 const DASH_COOLDOWN_WIDTH: f32 = 100.0;
 const DASH_COOLDOWN_HEIGHT: f32 = 10.0;
+
+/// How long the timer between rounds are in seconds.
+const START_TIMER_TIME: usize = 3;
 
 /// Used to tag which team a player belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,7 +126,7 @@ impl Default for DashTimer {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct HockeyGamePlugin;
 
 impl Plugin for HockeyGamePlugin {
@@ -134,6 +137,7 @@ impl Plugin for HockeyGamePlugin {
                     .with_system(reset_votes.system())
                     .with_system(setup_map.system())
                     .with_system(setup_score.system())
+                    .with_system(setup_start_timer::<HockeyGamePlugin, START_TIMER_TIME>.system())
                     .with_system(setup_players.system().label("players"))
                     .with_system(setup_screen_text.system().after("players")),
             )
@@ -145,6 +149,7 @@ impl Plugin for HockeyGamePlugin {
                     .with_system(handle_exit_event.system().after("vote"))
                     .with_system(handle_goal.system().label("goal"))
                     .with_system(update_scoreboard.system())
+                    .with_system(handle_start_timer.system().label("start").after("goal"))
                     .with_system(move_players.system())
                     .with_system(update_dash_timers.system().after("dash").label("timer"))
                     .with_system(handle_player_dash.system().after("dash").after("timer"))
@@ -269,7 +274,15 @@ fn update_scoreboard(
     }
 }
 
-fn update_dash_timers(time: Res<Time>, mut dash_timer_query: Query<&mut DashTimer>) {
+fn update_dash_timers(
+    time: Res<Time>,
+    mut dash_timer_query: Query<&mut DashTimer>,
+    start_timer_query: Query<&StartTimer>,
+) {
+    if !start_timer_query.single().unwrap().finished() {
+        return;
+    }
+
     for mut timer in dash_timer_query.iter_mut() {
         timer.tick(time.delta());
     }
@@ -289,7 +302,12 @@ fn handle_player_dash(
         &RigidBodyMassProps,
     )>,
     mut dash_event_reader: EventReader<DashEvent>,
+    start_timer_query: Query<&StartTimer>,
 ) {
+    if !start_timer_query.single().unwrap().finished() {
+        return;
+    }
+
     for DashEvent(event_player_id) in dash_event_reader.iter() {
         // TODO: More performant way to get player_query from player_id?
         for (player_id, mut timer, mut velocity, mass) in player_query.iter_mut() {
@@ -369,6 +387,7 @@ fn update_dash_ui(
 
 /// Checks collisions between ball and goal. Updates scores and resets ball
 /// & player positions if a collision is found.
+#[allow(clippy::too_many_arguments)]
 fn handle_goal(
     mut commands: Commands,
     mut intersection_event: EventReader<IntersectionEvent>,
@@ -377,6 +396,7 @@ fn handle_goal(
     mut score_count: Query<&mut ScoreCount>,
     mut puck_query: Query<(&mut RigidBodyPosition, &mut RigidBodyVelocity), With<Puck>>,
     goal_query: Query<&Team, With<Goal>>,
+    mut start_timer_query: Query<&mut StartTimer>,
 ) {
     for intersection in intersection_event.iter() {
         if intersection.intersecting {
@@ -439,6 +459,8 @@ fn handle_goal(
             pos.position = Vec2::ZERO.into();
             velocity.linvel = Vec2::ZERO.into();
             velocity.angvel = 0.0;
+
+            start_timer_query.single_mut().unwrap().reset();
         }
     }
 }

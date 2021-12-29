@@ -27,8 +27,8 @@ use skitspel::{
     GAME_HEIGHT, GAME_WIDTH, PLAYER_RADIUS, RAPIER_SCALE_FACTOR,
 };
 use util_bevy::{
-    create_vote_text_sections, despawn_entity, despawn_system, AsBevyColor, Fonts, PlayerVote,
-    Shape, VoteEvent,
+    create_vote_text_sections, despawn_entity, despawn_system, handle_start_timer,
+    setup_start_timer, AsBevyColor, Fonts, PlayerVote, Shape, StartTimer, VoteEvent,
 };
 use util_rapier::{create_path_with_thickness, move_players, spawn_border_walls, spawn_player};
 
@@ -63,6 +63,9 @@ struct RightScoreText;
 
 const EXIT_TEXT: &str = "Press B to go back to main menu";
 
+/// How long the timer between rounds are in seconds.
+const START_TIMER_TIME: usize = 3;
+
 /// Used to tag which team a player belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Team {
@@ -87,7 +90,7 @@ struct Goal;
 /// score of the left team and the right usize is the score of the right team.
 struct ScoreCount(usize, usize);
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct VolleyBallGamePlugin;
 
 impl Plugin for VolleyBallGamePlugin {
@@ -97,6 +100,7 @@ impl Plugin for VolleyBallGamePlugin {
                 .with_system(reset_votes.system())
                 .with_system(setup_gravity.system())
                 .with_system(setup_map.system())
+                .with_system(setup_start_timer::<VolleyBallGamePlugin, START_TIMER_TIME>.system())
                 .with_system(setup_score.system())
                 .with_system(setup_players.system().label("players"))
                 .with_system(setup_screen_text.system().after("players")),
@@ -107,10 +111,11 @@ impl Plugin for VolleyBallGamePlugin {
                 .with_system(handle_connect.system().label("vote"))
                 .with_system(handle_player_input.system().label("vote"))
                 .with_system(handle_exit_event.system().after("vote"))
-                .with_system(handle_goal.system())
+                .with_system(handle_goal.system().label("goal"))
+                .with_system(handle_start_timer.system().label("start").after("goal"))
                 .with_system(update_scoreboard.system())
                 .with_system(move_players.system())
-                .with_system(slow_down_ball_fall.system()),
+                .with_system(handle_ball_fall.system().after("start")),
         )
         .add_system_set(
             SystemSet::on_exit(GAME_STATE)
@@ -218,33 +223,54 @@ fn update_scoreboard(
 
 /// Slows down the speed in which the ball is falling. A force will be applied
 /// at every tick to make sure that the ball falls slower.
-fn slow_down_ball_fall(
+///
+/// If the game is paused or in the "StartTimer", this system will make sure
+/// that the ball is stuck in the air.
+///
+/// When we exit the "StartTimer", the ball will be given a push upwards and
+/// to an arbitrary side to start them game.
+fn handle_ball_fall(
     time: Res<Time>,
-    mut ball_query: Query<(&mut RigidBodyVelocity, &RigidBodyMassProps), With<Ball>>,
+    mut ball_query: Query<
+        (
+            &mut RigidBodyVelocity,
+            &mut RigidBodyPosition,
+            &RigidBodyMassProps,
+        ),
+        With<Ball>,
+    >,
+    start_timer_query: Query<&StartTimer>,
 ) {
     let delta_tick = time.delta_seconds();
-    for (mut velocity, mass) in ball_query.iter_mut() {
-        velocity.apply_impulse(mass, (Vec2::Y * delta_tick * 5.0).into());
+    for (mut velocity, mut pos, mass) in ball_query.iter_mut() {
+        let start_timer = start_timer_query.single().unwrap();
+        if start_timer.just_finished() {
+            // The timer just finished and the game is starting.
+            let force_x = rand::thread_rng().gen_range(-1.0..=1.0);
+            let heading_vec = Vec2::new(force_x, 0.5).normalize();
+            velocity.apply_impulse(mass, (heading_vec * 15.0).into())
+        } else if start_timer.finished() {
+            // "Normal" operation, slow down the ball so it doesn't fall so fast.
+            velocity.apply_impulse(mass, (Vec2::Y * delta_tick * 5.0).into());
+        } else {
+            // StartTimer counting down, so keep the ball still in the middle.
+            reset_ball(&mut pos, &mut velocity);
+        }
     }
 }
 
 /// Checks collisions between ball and goal (floor). Updates scores and resets ball
 /// & player positions if a collision is found.
+#[allow(clippy::too_many_arguments)]
 fn handle_goal(
     mut commands: Commands,
     mut intersection_event: EventReader<IntersectionEvent>,
     mut players: ResMut<Players>,
     players_playing: Query<(Entity, &PlayerId, &Team)>,
     mut score_count: Query<&mut ScoreCount>,
-    mut ball_query: Query<
-        (
-            &mut RigidBodyPosition,
-            &mut RigidBodyVelocity,
-            &RigidBodyMassProps,
-        ),
-        With<Ball>,
-    >,
+    mut ball_query: Query<(&mut RigidBodyPosition, &mut RigidBodyVelocity), With<Ball>>,
     goal_query: Query<&Team, With<Goal>>,
+    mut start_timer_query: Query<&mut StartTimer>,
 ) {
     for intersection in intersection_event.iter() {
         if intersection.intersecting {
@@ -302,8 +328,10 @@ fn handle_goal(
                 }
             }
 
-            let (mut ball_pos, mut ball_velocity, ball_mass) = ball_query.single_mut().unwrap();
-            reset_ball(&mut ball_pos, &mut ball_velocity, ball_mass);
+            let (mut ball_pos, mut ball_velocity) = ball_query.single_mut().unwrap();
+            reset_ball(&mut ball_pos, &mut ball_velocity);
+
+            start_timer_query.single_mut().unwrap().reset();
         }
     }
 }
@@ -809,11 +837,7 @@ fn spawn_ball(commands: &mut Commands, mut radius: f32, color: Color) {
         ..Default::default()
     };
 
-    reset_ball(
-        &mut rigid_body.position,
-        &mut rigid_body.velocity,
-        &rigid_body.mass_properties,
-    );
+    reset_ball(&mut rigid_body.position, &mut rigid_body.velocity);
 
     commands
         .spawn_bundle(rigid_body)
@@ -824,17 +848,9 @@ fn spawn_ball(commands: &mut Commands, mut radius: f32, color: Color) {
         .insert(ColliderPositionSync::Discrete);
 }
 
-// Reset ball to middle of field and push it in arbitrary direction upwards.
-fn reset_ball(
-    pos: &mut RigidBodyPosition,
-    velocity: &mut RigidBodyVelocity,
-    mass: &RigidBodyMassProps,
-) {
-    pos.position = Vec2::ZERO.into();
+// Reset ball to ~middle of field.
+fn reset_ball(pos: &mut RigidBodyPosition, velocity: &mut RigidBodyVelocity) {
+    pos.position = Vec2::new(0.0, (GAME_HEIGHT / 8.0) / RAPIER_SCALE_FACTOR).into();
     velocity.linvel = Vec2::ZERO.into();
     velocity.angvel = 0.0;
-
-    let force_x = rand::thread_rng().gen_range(-1.0..=1.0);
-    let heading_vec = Vec2::new(force_x, 0.5).normalize();
-    velocity.apply_impulse(mass, (heading_vec * 15.0).into())
 }

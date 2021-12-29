@@ -107,7 +107,7 @@ pub fn handle_start_timer(
             secs_remainig.to_string(),
             TextStyle {
                 font: fonts.bold.clone(),
-                font_size: 64.0,
+                font_size: 256.0,
                 color: Color::rgb(1.0, 1.0, 1.0),
             },
             TextAlignment {

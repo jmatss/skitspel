@@ -80,7 +80,7 @@ const EXPLOTION_COOLDOWN_HEIGHT: f32 = 10.0;
 /// How often a tail is spawned (seconds).
 const TAIL_SPAWN_TIME: f32 = 1.0 / 5.0;
 
-/// How long the timer between round is in seconds.
+/// How long the timer between rounds are in seconds.
 const START_TIMER_TIME: usize = 3;
 
 /// Tag used on the exit text.

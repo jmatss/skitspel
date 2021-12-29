@@ -15,7 +15,7 @@ use bevy_rapier2d::{
 use rand::Rng;
 
 use skitspel::{PlayerId, Players, ACCEL_AMOUNT, RAPIER_SCALE_FACTOR, VERTEX_AMOUNT};
-use util_bevy::Shape;
+use util_bevy::{Shape, StartTimer};
 
 use crate::create_polygon_points;
 
@@ -25,7 +25,14 @@ pub fn move_players(
     time: Res<Time>,
     players: Res<Players>,
     mut player_query: Query<(&PlayerId, &mut RigidBodyVelocity, &RigidBodyMassProps)>,
+    start_timer_query: Query<Option<&StartTimer>>,
 ) {
+    for start_timer in start_timer_query.iter().flatten() {
+        if !start_timer.finished() {
+            return;
+        }
+    }
+
     let delta_tick = time.delta_seconds();
     for (player_id, mut velocity, mass) in player_query.iter_mut() {
         if let Some(player) = players.get(player_id) {
