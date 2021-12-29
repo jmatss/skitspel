@@ -3,6 +3,7 @@ pub use fonts::Fonts;
 pub use game::{Game, Games};
 
 pub use shape::Shape;
+pub use start::{handle_start_timer, setup_start_timer, StartEntity, StartTimer};
 pub use vote::create_vote_text_sections;
 pub use vote::{PlayerVote, VoteEvent};
 
@@ -10,6 +11,7 @@ mod despawn;
 mod fonts;
 mod game;
 mod shape;
+mod start;
 mod vote;
 
 pub trait AsBevyColor {

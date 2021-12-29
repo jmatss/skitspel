@@ -45,6 +45,10 @@ impl Shape {
         Self::new(radius, center, sides)
     }
 
+    pub fn triangle(side_length: f32, center: Vec2) -> Self {
+        Self::new(side_length, center, 3)
+    }
+
     pub fn square(width: f32, center: Vec2) -> Self {
         Self::rectangle(width, width, center)
     }

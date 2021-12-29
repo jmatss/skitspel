@@ -1,4 +1,7 @@
-use std::ops::{Deref, DerefMut};
+use std::{
+    f32::consts::FRAC_PI_2,
+    ops::{Deref, DerefMut},
+};
 
 use bevy::{
     core::{Time, Timer},
@@ -840,12 +843,13 @@ fn setup_map(
         thickness,
     );
 
+    let angle_amount = FRAC_PI_2;
+
     let top_left_pos = Vec2::new(
         -GAME_WIDTH / 2.0 + thickness / 2.0 + corner_radius,
         GAME_HEIGHT / 2.0 - thickness / 2.0 - corner_radius,
     );
     let start_angle = std::f32::consts::FRAC_PI_2;
-    let end_angle = std::f32::consts::PI;
     spawn_rink_corner(
         &mut commands,
         &mut meshes,
@@ -853,7 +857,7 @@ fn setup_map(
         corner_radius,
         top_left_pos,
         start_angle,
-        end_angle,
+        angle_amount,
         amount_of_corner_points,
         grey_color,
         thickness,
@@ -864,7 +868,6 @@ fn setup_map(
         GAME_HEIGHT / 2.0 - thickness / 2.0 - corner_radius,
     );
     let start_angle = 0.0;
-    let end_angle = std::f32::consts::FRAC_PI_2;
     spawn_rink_corner(
         &mut commands,
         &mut meshes,
@@ -872,7 +875,7 @@ fn setup_map(
         corner_radius,
         top_right_pos,
         start_angle,
-        end_angle,
+        angle_amount,
         amount_of_corner_points,
         grey_color,
         thickness,
@@ -883,7 +886,6 @@ fn setup_map(
         -GAME_HEIGHT / 2.0 + thickness / 2.0 + corner_radius,
     );
     let start_angle = std::f32::consts::PI * 1.5;
-    let end_angle = std::f32::consts::PI * 2.0;
     spawn_rink_corner(
         &mut commands,
         &mut meshes,
@@ -891,7 +893,7 @@ fn setup_map(
         corner_radius,
         bottom_right_pos,
         start_angle,
-        end_angle,
+        angle_amount,
         amount_of_corner_points,
         grey_color,
         thickness,
@@ -902,7 +904,6 @@ fn setup_map(
         -GAME_HEIGHT / 2.0 + thickness / 2.0 + corner_radius,
     );
     let start_angle = std::f32::consts::PI;
-    let end_angle = std::f32::consts::PI * 1.5;
     spawn_rink_corner(
         &mut commands,
         &mut meshes,
@@ -910,7 +911,7 @@ fn setup_map(
         corner_radius,
         bottom_left_pos,
         start_angle,
-        end_angle,
+        angle_amount,
         amount_of_corner_points,
         grey_color,
         thickness,
@@ -996,12 +997,12 @@ fn spawn_rink_corner(
     radius: f32,
     pos: Vec2,
     start_angle: f32,
-    end_angle: f32,
+    angle_amount: f32,
     amount_of_points: usize,
     color: Color,
     thickness: f32,
 ) {
-    let points = create_circle_points(radius, pos, start_angle, end_angle, amount_of_points);
+    let points = create_circle_points(radius, pos, start_angle, angle_amount, amount_of_points);
     let (mesh, colliders) = create_path_with_thickness(
         &points
             .iter()

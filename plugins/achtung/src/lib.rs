@@ -1,6 +1,6 @@
 use std::{
     cmp::Reverse,
-    f32::consts::PI,
+    f32::consts::{PI, TAU},
     ops::{Deref, DerefMut},
 };
 
@@ -9,67 +9,89 @@ use bevy::{
     math::Vec2,
     prelude::{
         AppBuilder, Assets, BuildChildren, Children, Color, Commands, Entity, EventReader,
-        EventWriter, HorizontalAlign, IntoSystem, Local, Mesh, MeshBundle, Or,
+        EventWriter, HorizontalAlign, IntoSystem, Local, Mesh, MeshBundle,
         ParallelSystemDescriptorCoercion, Plugin, Query, RenderPipelines, Res, ResMut, State,
         SystemSet, Transform, VerticalAlign, With,
     },
+    render::{mesh::Indices, pipeline::PrimitiveTopology},
     text::{Text, Text2dBundle, TextAlignment, TextSection, TextStyle},
 };
 use bevy_prototype_lyon::prelude::{DrawMode, FillOptions, GeometryBuilder, ShapeColors};
 use bevy_rapier2d::{
     na::UnitComplex,
-    physics::{ColliderBundle, ColliderPositionSync, IntoEntity, RigidBodyBundle},
+    physics::{ColliderBundle, ColliderPositionSync, RigidBodyBundle},
     prelude::{
-        ActiveEvents, ColliderMassProps, ColliderMaterial, ColliderShape, ColliderType,
-        IntersectionEvent, Isometry, RigidBodyActivation, RigidBodyDamping, RigidBodyMassProps,
-        RigidBodyPosition, RigidBodyType, RigidBodyVelocity,
+        ColliderShape, ColliderType, Isometry, RigidBodyActivation, RigidBodyDamping,
+        RigidBodyMassProps, RigidBodyPosition, RigidBodyType, RigidBodyVelocity,
     },
 };
 use rand::{prelude::SliceRandom, Rng};
 
+use colliders::Colliders;
 use skitspel::{
     ActionEvent, DisconnectedPlayers, GameState, Player, PlayerId, Players, GAME_HEIGHT,
-    GAME_WIDTH, MAX_PLAYERS, RAPIER_SCALE_FACTOR,
+    GAME_WIDTH, RAPIER_SCALE_FACTOR,
 };
 use util_bevy::{
-    create_vote_text_sections, despawn_entity, despawn_system, AsBevyColor, Fonts, PlayerVote,
-    Shape, VoteEvent,
+    create_vote_text_sections, despawn_entity, despawn_system, handle_start_timer,
+    setup_start_timer, AsBevyColor, Fonts, PlayerVote, Shape, StartEntity, StartTimer, VoteEvent,
 };
-use util_rapier::{create_path_with_thickness, create_polygon_points, spawn_border_walls};
+use util_rapier::{
+    create_circle_points, indices_from_vertices, spawn_border_walls, vertices_with_thickness,
+};
 
-// TODO: Implement Animation for explotion.
+mod colliders;
 
 const GAME_STATE: GameState = GameState::AchtungGame;
 
-const SPAWN_POSITIONS: [(f32, f32); MAX_PLAYERS] = [
-    (-GAME_WIDTH * 0.375, GAME_HEIGHT * 0.25),
-    (-GAME_WIDTH * 0.375, -GAME_HEIGHT * 0.25),
-    (-GAME_WIDTH * 0.125, -GAME_HEIGHT * 0.25),
-    (-GAME_WIDTH * 0.125, GAME_HEIGHT * 0.25),
-    (-GAME_WIDTH * 0.25, 0.0),
-    (GAME_WIDTH * 0.375, GAME_HEIGHT * 0.25),
-    (GAME_WIDTH * 0.375, -GAME_HEIGHT * 0.25),
-    (GAME_WIDTH * 0.125, -GAME_HEIGHT * 0.25),
-    (GAME_WIDTH * 0.125, GAME_HEIGHT * 0.25),
+const SPAWN_POSITIONS: [(f32, f32); 12] = [
+    (-GAME_WIDTH * 0.3, GAME_HEIGHT * 0.25),
+    (-GAME_WIDTH * 0.3, 0.0),
+    (-GAME_WIDTH * 0.3, -GAME_HEIGHT * 0.25),
+    (-GAME_WIDTH * 0.1, GAME_HEIGHT * 0.25),
+    (-GAME_WIDTH * 0.1, 0.0),
+    (-GAME_WIDTH * 0.1, -GAME_HEIGHT * 0.25),
+    (GAME_WIDTH * 0.1, GAME_HEIGHT * 0.25),
+    (GAME_WIDTH * 0.1, 0.0),
+    (GAME_WIDTH * 0.1, -GAME_HEIGHT * 0.25),
+    (GAME_WIDTH * 0.3, GAME_HEIGHT * 0.25),
+    (GAME_WIDTH * 0.3, 0.0),
+    (GAME_WIDTH * 0.3, -GAME_HEIGHT * 0.25),
 ];
 
-const EXPLOTION_TEXT: &str = "Press A to create explotion (5 sec cooldown)\n";
+// TODO:
+//const EXPLOTION_TEXT: &str = "Press A to create explotion (5 sec cooldown)\n";
+const EXPLOTION_TEXT: &str = "\n";
 const EXIT_TEXT: &str = "Press B to go back to main menu";
 
-const ACHTUNG_PLAYER_HEIGHT: f32 = 20.0;
+/// The thickness/size of the player character.
+const PLAYER_THICKNESS: f32 = 20.0;
 
-const ACHTUNG_CONSTANT_SPEED: f32 = 200.0;
-const ACHTUNG_CONSTANT_TORQUE: f32 = 100.0;
+/// The thickness of the tails.
+const TAIL_THICKNESS: f32 = 10.0;
+
+const ACHTUNG_CONSTANT_SPEED: f32 = 400.0;
+const ACHTUNG_CONSTANT_TORQUE: f32 = 150.0;
 
 /// The height and width of the explotion cooldown UI over the players.
-const EXPLOTION_COOLDOWN_WIDTH: f32 = ACHTUNG_PLAYER_HEIGHT * 1.5;
+const EXPLOTION_COOLDOWN_WIDTH: f32 = PLAYER_THICKNESS * 1.5;
 const EXPLOTION_COOLDOWN_HEIGHT: f32 = 10.0;
+
+/// How often a tail is spawned (seconds).
+const TAIL_SPAWN_TIME: f32 = 1.0 / 5.0;
+
+/// How long the timer between round is in seconds.
+const START_TIMER_TIME: usize = 3;
 
 /// Tag used on the exit text.
 struct ExitText;
 
 /// Tag used on the player tails.
 struct Tail;
+
+/// Tag used on the tail part that haven't been "created" yet, it is located
+/// between the back of the player and the latest tail point.
+struct CurrentTail;
 
 /// Tag used on the walls.
 #[derive(Clone)]
@@ -126,7 +148,7 @@ struct TailSpawn {
 impl TailSpawn {
     fn new(x: f32, y: f32) -> Self {
         Self {
-            timer: Timer::from_seconds(1.0 / 10.0, true),
+            timer: Timer::from_seconds(TAIL_SPAWN_TIME, true),
             prev_x: x,
             prev_y: y,
         }
@@ -147,7 +169,7 @@ impl DerefMut for TailSpawn {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct AchtungGamePlugin;
 
 impl Plugin for AchtungGamePlugin {
@@ -156,6 +178,8 @@ impl Plugin for AchtungGamePlugin {
             .add_system_set(
                 SystemSet::on_enter(GAME_STATE)
                     .with_system(reset_votes.system())
+                    .with_system(setup_colliders.system())
+                    .with_system(setup_start_timer::<AchtungGamePlugin, START_TIMER_TIME>.system())
                     .with_system(setup_map.system())
                     .with_system(setup_screen_text.system()),
             )
@@ -167,9 +191,23 @@ impl Plugin for AchtungGamePlugin {
                     .with_system(handle_winner.system())
                     .with_system(update_scoreboard.system())
                     .with_system(move_achtung_players.system())
-                    .with_system(handle_spawn_tails.system().label("tail"))
                     .with_system(handle_death.system().label("death"))
-                    .with_system(reset_players.system().after("tail").after("death"))
+                    .with_system(reset_game.system().label("reset").after("death"))
+                    .with_system(handle_start_timer.system().label("start").after("reset"))
+                    .with_system(
+                        handle_tails
+                            .system()
+                            .label("tail")
+                            .after("reset")
+                            .after("start"),
+                    )
+                    .with_system(
+                        handle_current_tails
+                            .system()
+                            .after("reset")
+                            .after("tail")
+                            .after("start"),
+                    )
                     .with_system(
                         update_explotion_timers
                             .system()
@@ -216,17 +254,21 @@ fn handle_winner(mut players: ResMut<Players>, players_alive_query: Query<&Playe
     }
 }
 
-fn reset_players(
+fn reset_game(
     mut commands: Commands,
     mut players: ResMut<Players>,
     players_alive_query: Query<Entity, With<PlayerId>>,
     tail_query: Query<Entity, With<Tail>>,
+    mut colliders: Query<&mut Colliders>,
+    mut start_timer_query: Query<&mut StartTimer>,
 ) {
     if players_alive_query.iter().count() <= 1 {
-        // Remove any players that are still alive and all all tails.
+        // Remove any players that are still alive and all tails.
         for entity in players_alive_query.iter().chain(tail_query.iter()) {
             despawn_entity(&mut commands, entity);
         }
+
+        colliders.single_mut().unwrap().reset();
 
         let mut spawn_positions = SPAWN_POSITIONS;
         spawn_positions.shuffle(&mut rand::thread_rng());
@@ -237,9 +279,11 @@ fn reset_players(
             // and the player continues to go in the same direction when respawned.
             player.reset_action();
 
-            let rotation = rand::thread_rng().gen_range(0.0..(2.0 * PI));
+            let rotation = rand::thread_rng().gen_range(0.0..TAU);
             spawn_achtung_player(&mut commands, player, spawn_positions[idx].into(), rotation);
         }
+
+        start_timer_query.single_mut().unwrap().reset();
     }
 }
 
@@ -301,7 +345,15 @@ fn update_scoreboard(
     }
 }
 
-fn update_explotion_timers(time: Res<Time>, mut explotion_timer_query: Query<&mut ExplotionTimer>) {
+fn update_explotion_timers(
+    time: Res<Time>,
+    mut explotion_timer_query: Query<&mut ExplotionTimer>,
+    start_timer_query: Query<&StartTimer>,
+) {
+    if !start_timer_query.single().unwrap().finished() {
+        return;
+    }
+
     for mut timer in explotion_timer_query.iter_mut() {
         timer.tick(time.delta());
     }
@@ -333,61 +385,123 @@ fn handle_player_explotion(
     }
 }
 
-fn handle_spawn_tails(
+/// Spawns a tail with a corresponding collider everytime the `TailSpawn` timer
+/// have finished.
+#[allow(clippy::too_many_arguments)]
+fn handle_tails(
     mut commands: Commands,
     render_pipelines: Res<RenderPipelines>,
     mut meshes: ResMut<Assets<Mesh>>,
     time: Res<Time>,
     players: Res<Players>,
     mut player_query: Query<(&PlayerId, &mut TailSpawn, &RigidBodyPosition)>,
+    mut colliders: Query<&mut Colliders>,
+    start_timer_query: Query<&StartTimer>,
 ) {
+    if !start_timer_query.single().unwrap().finished() {
+        return;
+    }
+
     for (player_id, mut tail_spawn, pos) in player_query.iter_mut() {
         if tail_spawn.timer.tick(time.delta()).just_finished() {
-            let player_angle = pos.position.rotation.angle() + std::f32::consts::FRAC_PI_2;
-            let player_heading_vec = Vec2::new(player_angle.cos(), player_angle.sin());
-            let player_backside = player_heading_vec * -ACHTUNG_PLAYER_HEIGHT;
-
-            let cur_x = pos.position.translation.x * RAPIER_SCALE_FACTOR + player_backside.x;
-            let cur_y = pos.position.translation.y * RAPIER_SCALE_FACTOR + player_backside.y;
-            let prev_x = tail_spawn.prev_x;
-            let prev_y = tail_spawn.prev_y;
-
             if let Some(player) = players.get(player_id) {
-                let (mesh, colliders) = create_path_with_thickness(
-                    &[Vec2::new(cur_x, cur_y), Vec2::new(prev_x, prev_y)],
-                    player.color().as_bevy(),
-                    ACHTUNG_PLAYER_HEIGHT / 2.0,
-                    ColliderType::Sensor,
-                    ActiveEvents::INTERSECTION_EVENTS,
-                    false,
-                );
+                let vertices = current_tail_vertices(&tail_spawn, pos);
+                colliders.single_mut().unwrap().add(&vertices);
 
-                let mut entity_commands = commands.spawn_bundle(MeshBundle {
+                let mesh = current_tail_mesh(&tail_spawn, pos, player.color().as_bevy());
+                commands
+                    .spawn_bundle(MeshBundle {
+                        mesh: meshes.add(mesh),
+                        render_pipelines: render_pipelines.clone(),
+                        ..Default::default()
+                    })
+                    .insert(Tail)
+                    .insert(AchtungGamePlugin);
+
+                tail_spawn.prev_x = pos.position.translation.x * RAPIER_SCALE_FACTOR;
+                tail_spawn.prev_y = pos.position.translation.y * RAPIER_SCALE_FACTOR;
+            }
+        }
+    }
+}
+
+/// Handles the tail that is attached to the back of the player and haven't
+/// been "spawned" yet. It doesn't have collider.
+fn handle_current_tails(
+    mut commands: Commands,
+    render_pipelines: Res<RenderPipelines>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    players: Res<Players>,
+    mut player_query: Query<(&PlayerId, &TailSpawn, &RigidBodyPosition)>,
+    cur_tail_query: Query<Entity, With<CurrentTail>>,
+    start_timer_query: Query<&StartTimer>,
+) {
+    if !start_timer_query.single().unwrap().finished() {
+        return;
+    }
+
+    for (player_id, tail_spawn, pos) in player_query.iter_mut() {
+        for entity in cur_tail_query.iter() {
+            despawn_entity(&mut commands, entity)
+        }
+
+        if let Some(player) = players.get(player_id) {
+            let mesh = current_tail_mesh(tail_spawn, pos, player.color().as_bevy());
+            commands
+                .spawn_bundle(MeshBundle {
                     mesh: meshes.add(mesh),
                     render_pipelines: render_pipelines.clone(),
                     ..Default::default()
-                });
-
-                colliders.into_iter().for_each(|collider| {
-                    entity_commands.with_children(|parent| {
-                        parent.spawn_bundle(collider).insert(Tail);
-                    });
-                });
-
-                entity_commands.insert(Tail).insert(AchtungGamePlugin);
-            }
-
-            tail_spawn.prev_x = cur_x;
-            tail_spawn.prev_y = cur_y;
+                })
+                .insert(CurrentTail)
+                .insert(Tail)
+                .insert(AchtungGamePlugin);
         }
     }
+}
+
+fn current_tail_vertices(tail_spawn: &TailSpawn, pos: &RigidBodyPosition) -> Vec<Vec2> {
+    let cur_x = pos.position.translation.x * RAPIER_SCALE_FACTOR;
+    let cur_y = pos.position.translation.y * RAPIER_SCALE_FACTOR;
+    let prev_x = tail_spawn.prev_x;
+    let prev_y = tail_spawn.prev_y;
+    vertices_with_thickness(
+        &[Vec2::new(cur_x, cur_y), Vec2::new(prev_x, prev_y)],
+        TAIL_THICKNESS,
+        false,
+    )
+}
+
+fn current_tail_mesh(tail_spawn: &TailSpawn, pos: &RigidBodyPosition, color: Color) -> Mesh {
+    let new_vertices = current_tail_vertices(tail_spawn, pos);
+    let indices = indices_from_vertices(&new_vertices);
+    let colors = vec![[color.r(), color.g(), color.b(), color.a()]; new_vertices.len()];
+
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList);
+    mesh.set_attribute(
+        Mesh::ATTRIBUTE_POSITION,
+        new_vertices.iter().map(|v| [v.x, v.y]).collect::<Vec<_>>(),
+    );
+    mesh.set_indices(Some(Indices::U32(indices)));
+    mesh.set_attribute(Mesh::ATTRIBUTE_COLOR, colors);
+    mesh
 }
 
 fn update_explotion_ui(
     mut commands: Commands,
     mut player_query: Query<(Entity, &mut ExplotionTimer, &Children)>,
     cooldown_ui_query: Query<(), With<ExplotionCooldownUI>>,
+    start_timer_query: Query<&StartTimer>,
 ) {
+    // TODO: Implement in the future.
+    if true {
+        return;
+    }
+
+    if !start_timer_query.single().unwrap().finished() {
+        return;
+    }
+
     let red_color = Color::rgb(1.0, 0.1, 0.1);
     let green_color = Color::rgb(0.1, 1.0, 0.1);
 
@@ -409,7 +523,7 @@ fn update_explotion_ui(
                 ),
                 ShapeColors::new(green_color),
                 DrawMode::Fill(FillOptions::DEFAULT),
-                Transform::from_xyz(0.0, ACHTUNG_PLAYER_HEIGHT, 0.0),
+                Transform::from_xyz(0.0, PLAYER_THICKNESS, 0.0),
             );
 
             let new_child = commands
@@ -438,7 +552,7 @@ fn update_explotion_ui(
                 ),
                 ShapeColors::new(red_color),
                 DrawMode::Fill(FillOptions::DEFAULT),
-                Transform::from_xyz(0.0, ACHTUNG_PLAYER_HEIGHT, 0.0),
+                Transform::from_xyz(0.0, PLAYER_THICKNESS, 0.0),
             );
 
             let new_children = commands
@@ -453,21 +567,44 @@ fn update_explotion_ui(
 
 /// Checks collisions between players and either walls or tails. Removes the
 /// player entity if a collision is found.
-#[allow(clippy::type_complexity)]
+///
+/// The player is expected to be a circle. Only points from the "front" half
+/// of the circle will be used to check collision.
 fn handle_death(
     mut commands: Commands,
-    mut intersection_event: EventReader<IntersectionEvent>,
-    players_query: Query<Entity, With<PlayerId>>,
-    death_query: Query<Entity, Or<(With<Wall>, With<Tail>)>>,
+    players_query: Query<(Entity, &RigidBodyPosition), With<PlayerId>>,
+    colliders: Query<&Colliders>,
+    start_timer_query: Query<&StartTimer>,
 ) {
-    for intersection in intersection_event.iter() {
-        if intersection.intersecting {
-            let entity_a = intersection.collider1.entity();
-            let entity_b = intersection.collider2.entity();
-            if players_query.get(entity_a).is_ok() && death_query.get(entity_b).is_ok() {
-                despawn_entity(&mut commands, entity_a);
-            } else if players_query.get(entity_b).is_ok() && death_query.get(entity_a).is_ok() {
-                despawn_entity(&mut commands, entity_b);
+    if !start_timer_query.single().unwrap().finished() {
+        return;
+    }
+
+    let colliders = colliders.single().unwrap();
+    for (entity, pos) in players_query.iter() {
+        let x_pos = pos.position.translation.x * RAPIER_SCALE_FACTOR;
+        let y_pos = pos.position.translation.y * RAPIER_SCALE_FACTOR;
+        let player_angle = pos.position.rotation.angle() + std::f32::consts::FRAC_PI_2;
+
+        // Take `amount_of_points` points from the "front" of the player circle
+        // and check collisions with those points. This will allows us to spawn
+        // the tail in the middle of the player without worrying about it colliding
+        // with the player directly.
+        let start_angle = player_angle - std::f32::consts::FRAC_PI_2;
+        let angle_amount = PI;
+        let amount_of_points = 8;
+        let points = create_circle_points(
+            PLAYER_THICKNESS / 2.0,
+            Vec2::new(x_pos, y_pos),
+            start_angle,
+            angle_amount,
+            amount_of_points,
+        );
+
+        for point in points {
+            if colliders.is_collision(point.into()) {
+                despawn_entity(&mut commands, entity);
+                continue;
             }
         }
     }
@@ -537,14 +674,17 @@ fn handle_exit_event(
     }
 }
 
-pub fn move_achtung_players(
+fn move_achtung_players(
     time: Res<Time>,
     players: Res<Players>,
     mut player_query: Query<(&PlayerId, &mut RigidBodyVelocity, &RigidBodyPosition)>,
+    start_timer_query: Query<&StartTimer>,
 ) {
     let delta_tick = time.delta_seconds();
     for (player_id, mut velocity, pos) in player_query.iter_mut() {
         if let Some(player) = players.get(player_id) {
+            // The rotation can still be changed even when the `start_timer` hasn't
+            // finished yet.
             let movement_x = player.movement_x();
             if movement_x > 0.0 {
                 velocity.angvel = -ACHTUNG_CONSTANT_TORQUE * delta_tick;
@@ -554,10 +694,12 @@ pub fn move_achtung_players(
                 velocity.angvel = 0.0;
             }
 
-            let player_angle = pos.position.rotation.angle() + std::f32::consts::FRAC_PI_2;
-            let player_heading_vec = Vec2::new(player_angle.cos(), player_angle.sin());
+            if start_timer_query.single().unwrap().finished() {
+                let player_angle = pos.position.rotation.angle() + std::f32::consts::FRAC_PI_2;
+                let player_heading_vec = Vec2::new(player_angle.cos(), player_angle.sin());
 
-            velocity.linvel = (player_heading_vec * ACHTUNG_CONSTANT_SPEED * delta_tick).into();
+                velocity.linvel = (player_heading_vec * ACHTUNG_CONSTANT_SPEED * delta_tick).into();
+            }
         }
     }
 }
@@ -567,45 +709,28 @@ fn reset_votes(mut exit_event_writer: EventWriter<VoteEvent>) {
 }
 
 fn spawn_achtung_player(commands: &mut Commands, player: &Player, mut pos: Vec2, rotation: f32) {
-    let red_color = Color::rgb(1.0, 0.1, 0.1);
-    let vertex_amount = 3;
+    let white_color = Color::rgb(1.0, 1.0, 1.0);
     let center = Vec2::ZERO;
-    let mut height = ACHTUNG_PLAYER_HEIGHT;
+    let mut radius = PLAYER_THICKNESS / 2.0;
 
-    let player_angle = rotation + std::f32::consts::FRAC_PI_2;
-    let player_heading_vec = Vec2::new(player_angle.cos(), player_angle.sin());
-    let player_backside_relative = player_heading_vec * -height;
-    let player_backside = pos + player_backside_relative;
+    let tail_spawn = TailSpawn::new(pos.x, pos.y);
 
-    let tail_spawn = TailSpawn::new(player_backside.x, player_backside.y);
-
-    let head_shape_bundle = GeometryBuilder::build_as(
-        &Shape::new(height, center, vertex_amount),
+    let player_shape_bundle = GeometryBuilder::build_as(
+        &Shape::circle(radius, center),
         ShapeColors::new(player.color().as_bevy()),
         DrawMode::Fill(FillOptions::DEFAULT),
         Transform::from_xyz(pos.x, pos.y, 0.0),
     );
 
-    let bottom_shape_bundle = GeometryBuilder::build_as(
-        &Shape::circle(height / 2.0, center),
-        ShapeColors::new(player.color().as_bevy()),
+    let start_arrow_bundle = GeometryBuilder::build_as(
+        &Shape::triangle(10.0, Vec2::ZERO),
+        ShapeColors::new(white_color),
         DrawMode::Fill(FillOptions::DEFAULT),
-        Transform::from_xyz(0.0, -height / 2.0, 0.0),
-    );
-
-    let cooldown_bundle = GeometryBuilder::build_as(
-        &Shape::rectangle(
-            EXPLOTION_COOLDOWN_WIDTH,
-            EXPLOTION_COOLDOWN_HEIGHT,
-            Vec2::ZERO,
-        ),
-        ShapeColors::new(red_color),
-        DrawMode::Fill(FillOptions::DEFAULT),
-        Transform::from_xyz(0.0, height, 0.0),
+        Transform::from_xyz(0.0, PLAYER_THICKNESS, 0.0),
     );
 
     pos /= RAPIER_SCALE_FACTOR;
-    height /= RAPIER_SCALE_FACTOR;
+    radius /= RAPIER_SCALE_FACTOR;
 
     let rigid_body = RigidBodyBundle {
         body_type: RigidBodyType::Dynamic,
@@ -624,43 +749,22 @@ fn spawn_achtung_player(commands: &mut Commands, player: &Player, mut pos: Vec2,
         ..Default::default()
     };
 
-    let collider_shape =
-        ColliderShape::convex_hull(&create_polygon_points(vertex_amount, height, center))
-            .unwrap_or_else(|| {
-                panic!("Unable to create convex_hull with sides: {}", vertex_amount)
-            });
-
     let collider = ColliderBundle {
-        collider_type: ColliderType::Sensor,
-        shape: collider_shape,
-        flags: ActiveEvents::INTERSECTION_EVENTS.into(),
-        material: ColliderMaterial {
-            friction: 0.7,
-            restitution: 0.8,
-            ..Default::default()
-        },
-        mass_properties: ColliderMassProps::Density(1.0),
+        shape: ColliderShape::ball(radius),
         ..Default::default()
     };
 
     let mut entity_commands = commands.spawn_bundle(rigid_body);
     entity_commands
-        .insert_bundle(head_shape_bundle)
+        .insert_bundle(player_shape_bundle)
         .insert_bundle(collider)
         .insert(player.id())
         .insert(tail_spawn)
         .insert(ExplotionTimer::default())
         .insert(AchtungGamePlugin)
-        .insert(ColliderPositionSync::Discrete);
-
-    entity_commands
+        .insert(ColliderPositionSync::Discrete)
         .with_children(|parent| {
-            parent
-                .spawn_bundle(cooldown_bundle)
-                .insert(ExplotionCooldownUI);
-        })
-        .with_children(|parent| {
-            parent.spawn_bundle(bottom_shape_bundle);
+            parent.spawn_bundle(start_arrow_bundle).insert(StartEntity);
         });
 }
 
@@ -722,6 +826,13 @@ fn setup_screen_text(mut commands: Commands, players: Res<Players>, fonts: Res<F
         .insert(AchtungGamePlugin);
 }
 
+fn setup_colliders(mut commands: Commands) {
+    commands
+        .spawn()
+        .insert(Colliders::new(TAIL_THICKNESS))
+        .insert(AchtungGamePlugin);
+}
+
 fn setup_map(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -733,7 +844,7 @@ fn setup_map(
         &mut meshes,
         render_pipelines.clone(),
         red_color,
-        10.0,
+        TAIL_THICKNESS,
         ColliderType::Sensor,
         Some(Wall),
     )

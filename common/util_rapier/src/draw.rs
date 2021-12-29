@@ -1,3 +1,5 @@
+use std::f32::consts::TAU;
+
 use bevy::{
     math::Vec2,
     prelude::{Color, Mesh},
@@ -11,33 +13,33 @@ use bevy_rapier2d::{
         ColliderType, Real,
     },
 };
+
 use skitspel::RAPIER_SCALE_FACTOR;
 
 /// `pos` is the absolute position of the center point of the circle.
-/// The `start_angle` & `end_angle` should be between 0 and 2*PI. The start angle
-/// must be less than end_angle.
+/// The `start_angle` is where we start "drawing" points and we will end "drawing"
+/// points at `start_angle + angle_amount`.
+/// `angle_amount` must be a value between 0 & 2PI.
 ///
 /// The functions returns `amount_of_points` points plotted around the circle
 /// with its center at position `pos`. Only points found between the angles
-/// `start_angle` & `end_angle` will be returned.
+/// `start_angle` & `start_angle + angle_amount` will be returned.
 pub fn create_circle_points(
     radius: f32,
     pos: Vec2,
     start_angle: f32,
-    end_angle: f32,
+    angle_amount: f32,
     amount_of_points: usize,
 ) -> Vec<Point2<Real>> {
-    use std::f32::consts::PI;
     assert!(radius > 0.0, "Radius must be greater than 0.");
     assert!(
         amount_of_points > 2,
         "amount_of_points must be greater than 2."
     );
-    assert!((0.0..=2.0 * PI).contains(&start_angle));
-    assert!((0.0..=2.0 * PI).contains(&end_angle));
+    assert!((0.0..=TAU).contains(&angle_amount));
 
     let mut points = Vec::with_capacity(amount_of_points);
-    let step = (end_angle - start_angle) / ((amount_of_points - 1) as f32);
+    let step = angle_amount / ((amount_of_points - 1) as f32);
     for i in 0..amount_of_points {
         let cur_angle = start_angle + i as f32 * step;
         let x = pos.x + radius * cur_angle.cos();
@@ -142,7 +144,7 @@ pub fn create_path_with_thickness(
 /// For example given two vertices `a` and `b`. We would split them up into
 /// four vertices: `a1`, `a2`, `b1` & `b2`. The line would then be represented
 /// by the two triangles between `a1`, `a2`, `b1` and `b1`, `b2`, `a2`.
-fn vertices_with_thickness(vertices: &[Vec2], line_thickness: f32, closed: bool) -> Vec<Vec2> {
+pub fn vertices_with_thickness(vertices: &[Vec2], line_thickness: f32, closed: bool) -> Vec<Vec2> {
     assert!(vertices.len() > 2 || (vertices.len() == 2 && !closed));
 
     let mut new_vertices: Vec<Vec2> = Vec::with_capacity(vertices.len() * 2);
@@ -210,7 +212,7 @@ fn create_new_vertices(prev: Vec2, cur: Vec2, next: Vec2, width: f32) -> [Vec2; 
 /// Creates a list of indices that will be used to create triangles for the
 /// given `vertices`. The triangles must be constructed counter clockwise so
 /// that they are facing forward (requirement by the bevy engine).
-fn indices_from_vertices(vertices: &[Vec2]) -> Vec<u32> {
+pub fn indices_from_vertices(vertices: &[Vec2]) -> Vec<u32> {
     let mut indices = Vec::default();
     let mut i = 0;
     for window in vertices.windows(4).step_by(2) {

@@ -1,6 +1,5 @@
 use std::sync::{Arc, Mutex};
 
-use achtung::AchtungGamePlugin;
 use bevy::{
     app::Events,
     input::{keyboard::KeyboardInput, ElementState},
@@ -16,7 +15,6 @@ use bevy::{
 };
 use bevy_prototype_lyon::plugin::ShapePlugin;
 use bevy_rapier2d::prelude::*;
-use hockey::HockeyGamePlugin;
 use rand::Rng;
 use smol::io;
 
@@ -26,6 +24,8 @@ use skitspel::{
 };
 use util_bevy::{Fonts, Game, Games, VoteEvent};
 
+use achtung::AchtungGamePlugin;
+use hockey::HockeyGamePlugin;
 use network::{
     EventMessage, EventTimer, GeneralEvent, NetworkContext, NetworkEvent, NetworkPlugin,
 };
@@ -131,6 +131,21 @@ pub fn common_setup(
                 .add(
                     Texture::from_buffer(
                         include_bytes!("..\\assets\\volleyball.png"),
+                        ImageType::Extension("png"),
+                    )
+                    .unwrap(),
+                )
+                .into(),
+        ),
+    });
+    games.push(Game {
+        name: "Achtung die Kurve",
+        game_state: GameState::AchtungGame,
+        screenshot: materials.add(
+            textures
+                .add(
+                    Texture::from_buffer(
+                        include_bytes!("..\\assets\\achtung.png"),
                         ImageType::Extension("png"),
                     )
                     .unwrap(),
