@@ -30,12 +30,10 @@ pub const RAPIER_SCALE_FACTOR: f32 = 25.0;
 
 /// The width of the game viewport. This size will be fixed and the game will
 /// be scaled to always fit the window size.
-//pub const GAME_WIDTH: f32 = 1280.0;
 pub const GAME_WIDTH: f32 = 1920.0;
 
 /// The height of the game viewport. This size will be fixed and the game will
 /// be scaled to always fit the window size.
-//pub const GAME_HEIGHT: f32 = 720.0;
 pub const GAME_HEIGHT: f32 = 1080.0;
 
 /// The maximum amount of players that can play. This can be used to ensure that
