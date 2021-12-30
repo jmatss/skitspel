@@ -30,8 +30,8 @@ pub(crate) struct Colliders {
     colliders: HashMap<usize, Vec<Collider>>,
 
     /// Cooliders and coordinates for the border colliders. The assumption is
-    /// that the scvreen is suronded by a border that is `self.half_thickness * 2.0`
-    /// wide. So these border colliders are calculated  +- those borders.
+    /// that the screen is surrounded by a border that is `thickness` wide.
+    /// These coordinates represents where these borders starts.
     collider_x_left: f32,
     collider_x_right: f32,
     collider_y_top: f32,
@@ -49,13 +49,13 @@ impl Colliders {
         }
     }
 
-    /// Resets and clears the colliders stored inside this struct,
+    /// Resets and clears the colliders stored inside this struct.
     pub fn reset(&mut self) {
         self.colliders.clear();
     }
 
-    /// Adds the polygon formed by given `vertices` as a collider. The `vertices`
-    /// MUST have a length of 4.
+    /// Adds the polygon formed by the given `vertices` as a collider. The
+    /// `vertices` MUST have a length of 4.
     pub fn add(&mut self, vertices: &[Vec2]) {
         assert!(vertices.len() == 4);
         let collider = Collider::new([vertices[0], vertices[1], vertices[2], vertices[3]]);
@@ -73,7 +73,7 @@ impl Colliders {
         }
     }
 
-    /// Returns true if the given point `p` is located inside one of the collders.
+    /// Returns true if the given point `p` is located inside one of the colliders.
     pub fn is_collision(&self, p: Vec2) -> bool {
         if self.screen_border_collision(p) {
             return true;
@@ -121,9 +121,9 @@ impl Colliders {
         p.x > collider.min_x && p.x < collider.max_x && p.y > collider.min_y && p.y < collider.max_y
     }
 
-    /// Returns true if a horizontal drawn from the point `p` intersects the
-    /// four lines forming the `collider` an odd number of times. This indicates
-    /// that point `p` can be found inside the `collider`.
+    /// Returns true if a horizontal line drawn from the point `p` intersects the
+    /// lines forming the `collider` an odd number of times. If this is true,
+    /// it indicates that point `p` is located inside the `collider`.
     fn horizontal_line_collision(&self, p: Vec2, collider: &Collider) -> bool {
         let mut intersect_count = 0;
         for i in 0..collider.points.len() {
@@ -141,9 +141,9 @@ impl Colliders {
     }
 }
 
-/// Contains pre-calculated min & max values for the x & y values found in
+/// Contains pre-calculated min & max values for the coordinate values found in
 /// `points`. This is done so that we don't have to re-calculate the values
-/// every time we do a "bound box" collision check.
+/// every time we do a "bounding box" collision check.
 #[derive(Clone)]
 struct Collider {
     points: [Vec2; 4],
