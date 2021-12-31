@@ -53,6 +53,9 @@ pub struct Player {
     id: PlayerId,
     score: usize,
 
+    /// Name specified by the client when it connected to the server.
+    name: String,
+
     /// This will be used for all color related to this player ex. on the icon
     /// or game items.
     color: Color,
@@ -63,10 +66,11 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn new(id: PlayerId, color: Color) -> Self {
+    pub fn new(id: PlayerId, name: String, color: Color) -> Self {
         Self {
             id,
             score: 0,
+            name,
             color,
             action: Default::default(),
         }
@@ -156,6 +160,10 @@ impl Player {
 
     pub fn id(&self) -> PlayerId {
         self.id
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     pub fn color(&self) -> Color {

@@ -2,8 +2,9 @@
 //!
 //! First byte indicates the type:
 //!   0 => Action event (move/fire/jump etc.)
+//!   1 => Connect event (sent from client when it connects containing name)
 //!
-//! If first byte is `ActionEvent` then the second byte represents:
+//! If first byte is `ActionEvent` (0) then the second byte represents:
 //!   0  => UpPressed
 //!   1  => UpReleased
 //!   2  => RightPressed
@@ -70,18 +71,20 @@ pub enum NetworkEvent {
 
 #[derive(Debug)]
 pub enum GeneralEvent {
-    /// Contains the sink that can be used to send data to the newly connected
-    /// client. This will not be propagated all the way through the "system".
-    /// The sink will at one point be moved to its correct place and the value
-    /// will be set to None.
-    Connected(Option<WebSocketSink>),
+    /// The String is the name that was specified by the newly connected player.
+    ///
+    /// The sink can be used to send data to the newly connected client. This
+    /// will not be propagated all the way through the "system". The sink will
+    /// at one point be moved to its correct place and the value will be set to
+    /// None.
+    Connected(String, Option<WebSocketSink>),
     Disconnected,
 }
 
 impl Clone for GeneralEvent {
     fn clone(&self) -> Self {
         match self {
-            Self::Connected(_) => Self::Connected(None),
+            Self::Connected(name, _) => Self::Connected(name.clone(), None),
             Self::Disconnected => Self::Disconnected,
         }
     }
@@ -90,18 +93,23 @@ impl Clone for GeneralEvent {
 /// Utility function to decode the given binary `data` into the `Event` that it
 /// represents. The `data` will have been sent from one of the clients.
 pub fn decode_message(data: &[u8]) -> NetworkEvent {
-    if data.len() != 2 {
-        return NetworkEvent::Invalid(data.to_vec());
+    if data.is_empty() {
+        return NetworkEvent::Invalid(Vec::with_capacity(0));
     }
 
     // See top-level comment for mapping between values and events.
     match data[0] {
         0 => decode_action_event(data),
+        1 => decode_connect_event(data),
         _ => NetworkEvent::Invalid(data.to_vec()),
     }
 }
 
 fn decode_action_event(data: &[u8]) -> NetworkEvent {
+    if data.len() != 2 {
+        return NetworkEvent::Invalid(data.to_vec());
+    }
+
     // See top-level comment for mapping between values and events.
     NetworkEvent::Action(match data[1] {
         0 => ActionEvent::UpPressed,
@@ -118,4 +126,11 @@ fn decode_action_event(data: &[u8]) -> NetworkEvent {
         11 => ActionEvent::BReleased,
         _ => return NetworkEvent::Invalid(data.to_vec()),
     })
+}
+
+pub fn decode_connect_event(data: &[u8]) -> NetworkEvent {
+    match std::str::from_utf8(&data[1..]) {
+        Ok(name) => NetworkEvent::General(GeneralEvent::Connected(name.to_string(), None)),
+        _ => NetworkEvent::Invalid(data.to_vec()),
+    }
 }

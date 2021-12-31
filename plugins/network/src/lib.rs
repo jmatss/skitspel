@@ -4,9 +4,9 @@ mod network;
 use std::sync::{Arc, Mutex};
 
 use bevy::prelude::{AppBuilder, IntoSystem, Plugin};
-use network::setup_network;
 
 pub use event::{EventMessage, EventTimer, GeneralEvent, NetworkEvent};
+use network::setup_network;
 pub use network::{ActionMessageIter, GeneralMessageIter, NetworkContext};
 
 /// Plugin that handles all network logic for the game.

@@ -22,7 +22,7 @@ use skitspel::{
     ActionEvent, ConnectedPlayers, DisconnectedPlayers, GameState, Player, Players, COLORS,
     GAME_HEIGHT, GAME_WIDTH, RAPIER_SCALE_FACTOR,
 };
-use util_bevy::{Fonts, Game, Games, VoteEvent};
+use util_bevy::{Fonts, Game, Games, Port, VoteEvent};
 
 use achtung::AchtungGamePlugin;
 use hockey::HockeyGamePlugin;
@@ -51,6 +51,7 @@ fn main() -> io::Result<()> {
             .init_resource::<DisconnectedPlayers>()
             .init_resource::<Games>()
             .init_resource::<Fonts>()
+            .init_resource::<Port>()
             .add_event::<VoteEvent>()
             .add_plugins(DefaultPlugins)
             .add_plugin(ShapePlugin)
@@ -197,11 +198,11 @@ fn handle_general_message(
     let mut event_ctx_guard = event_ctx.lock().unwrap();
     for EventMessage { player_id, event } in event_ctx_guard.iter_common() {
         match event {
-            NetworkEvent::General(GeneralEvent::Connected(_)) => {
+            NetworkEvent::General(GeneralEvent::Connected(name, _)) => {
                 let color_idx = rand::thread_rng().gen_range(0..COLORS.len());
                 let color = COLORS[color_idx];
 
-                let new_player = Player::new(player_id, color);
+                let new_player = Player::new(player_id, name, color);
                 players.insert(player_id, new_player.clone());
                 connected_players.insert(player_id, new_player);
 

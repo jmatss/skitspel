@@ -4,22 +4,74 @@ var webSocket;
 // Used to only act on `onmouseout` events if a button is pressed. 
 var buttonPressed = false;
 
-function init() {
+// Set to true when we should listen for key events when ex. pressing arrow keys
+// to move the player in games.
+var keyEventsActive = false;
+
+function navigateToConnect() {
+    document.body.innerHTML =
+          'Name: <input type="text" id="name"><br/>'
+        + 'Host: <input type="text" id="host"><br/>'
+        + 'Port: <input type="number" id="port"><br/>'
+        + '<button onmousedown="connect()">Connect</button>';
+    keyEventsActive = false;
+}
+
+function navigateToButtons() {
+    document.body.innerHTML =
+          '<button onmousedown="mouseDown(upPressed)" onmouseup="mouseUp(upReleased)" onmouseout="mouseOut(upReleased)">Up</button>'
+        + '<div>'
+        + '    <button style="width: 50%;" onmousedown="mouseDown(leftPressed)" onmouseup="mouseUp(leftReleased)" onmouseout="mouseOut(leftReleased)">Left</button>'
+        + '    <button style="width: 50%;" onmousedown="mouseDown(rightPressed)" onmouseup="mouseUp(rightReleased)" onmouseout="mouseOut(rightReleased)">Right</button>'
+        + '</div>'
+        + '<button onmousedown="mouseDown(downPressed)" onmouseup="mouseUp(downReleased)" onmouseout="mouseOut(downReleased)">Down</button>'
+        + '<div>'
+        + '    <button style="width: 50%; margin-top: 5vh;" onmousedown="mouseDown(aPressed)" onmouseup="mouseUp(aReleased)" onmouseout="mouseOut(aReleased)">A</button>'
+        + '    <button style="width: 50%; margin-top: 5vh;" onmousedown="mouseDown(bPressed)" onmouseup="mouseUp(bReleased)" onmouseout="mouseOut(bReleased)">B</button>'
+        + '</div>'
+        + '<div class="bottom">'
+        + '    <button style="width: 100%; height: 5vh;" onclick="disconnect()">Disconnect</button>'
+        + '</div>';
+    keyEventsActive = true;
+}
+
+function connect() {
     if ("WebSocket" in window) {
         if (typeof webSocket !== "undefined") {
+            navigateToButtons();
             alert("Already connected.");
             return
         }
 
-        const addr = "ws://localhost:8080";
+        const name = document.getElementById("name").value;
+        const host = document.getElementById("host").value;
+        const port = parseInt(document.getElementById("port").value);
+
+        if (isNaN(port)) {
+            alert("Unable to parse port as number. Try again.");
+            return;
+        } else if (!name) {
+            alert("Need to specify a non-empty name.");
+            return;
+        } else if (!host) {
+            alert("Need to specify a non-empty host.");
+            return;
+        }
+
+        const addr = "ws://" + host + ":" + port;
         const localWebSocket = new WebSocket(addr);
 
+        console.log("Connecting to address \"" + addr + "\" with name \"" + name + "\"");
+
         localWebSocket.onopen = function(_) {
-            alert("Websocket connection established.");
+            navigateToButtons();
+            const connectMsg = [1].concat(stringToUTF8Array(name));
+            localWebSocket.send(new Uint8Array(connectMsg));
             webSocket = localWebSocket;
         };
 
         localWebSocket.onclose = function(_) {
+            navigateToConnect();
             alert("Websocket connection closed.");
             webSocket = undefined;
         };
@@ -28,10 +80,11 @@ function init() {
     }
 }
 
-function exit() {
+function disconnect() {
     if (typeof webSocket !== "undefined") {
         webSocket.close();
         webSocket = undefined;
+        navigateToConnect();
     }
 }
 
@@ -41,18 +94,18 @@ function send(bytes) {
     }
 }
 
-function upPressed() { send([0, 0]) }
-function upReleased() { send([0, 1]) }
-function rightPressed() { send([0, 2]) }
-function rightReleased() { send([0, 3]) }
-function downPressed() { send([0, 4]) }
-function downReleased() { send([0, 5]) }
-function leftPressed() { send([0, 6]) }
-function leftReleased() { send([0, 7]) }
-function aPressed() { send([0, 8]) }
-function aReleased() { send([0, 9]) }
-function bPressed() { send([0, 10]) }
-function bReleased() { send([0, 11]) }
+function upPressed() { send([0, 0]); }
+function upReleased() { send([0, 1]); }
+function rightPressed() { send([0, 2]); }
+function rightReleased() { send([0, 3]); }
+function downPressed() { send([0, 4]); }
+function downReleased() { send([0, 5]); }
+function leftPressed() { send([0, 6]); }
+function leftReleased() { send([0, 7]); }
+function aPressed() { send([0, 8]); }
+function aReleased() { send([0, 9]); }
+function bPressed() { send([0, 10]); }
+function bReleased() { send([0, 11]); }
 
 function mouseDown(f) {
     buttonPressed = true;
@@ -71,8 +124,19 @@ function mouseOut(f) {
     }
 }
 
+// Converts the given UTF-16 encoded javascript string to an UTF-8 encoded
+// byte array that can be sent to the server.
+function stringToUTF8Array(utf16_str) {
+    const utf8_str = unescape(encodeURIComponent(utf16_str));
+    const utf8_arr = [];
+    for (var i = 0; i < utf8_str.length; i++) {
+        utf8_arr.push(utf8_str.charCodeAt(i));
+    }
+    return utf8_arr;
+}
+
 window.addEventListener("keydown", function (event) {
-    if (event.defaultPrevented || event.repeat) {
+    if (!keyEventsActive || event.defaultPrevented || event.repeat) {
         return;
     }
 
@@ -107,7 +171,7 @@ window.addEventListener("keydown", function (event) {
 }, true);
 
 window.addEventListener("keyup", function (event) {
-    if (event.defaultPrevented || event.repeat) {
+    if (!keyEventsActive || event.defaultPrevented || event.repeat) {
         return;
     }
 

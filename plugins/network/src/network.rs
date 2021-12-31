@@ -4,10 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use bevy::{
-    app::{AppExit, Events},
-    prelude::*,
-};
+use bevy::prelude::*;
 use futures_util::stream::StreamExt;
 use smol::{
     channel::{self, Receiver, Sender, TryRecvError},
@@ -15,6 +12,7 @@ use smol::{
 };
 
 use skitspel::{ActionEvent, PlayerId, PlayerIdGenerator};
+use util_bevy::Port;
 
 use crate::{
     event::{decode_message, EventMessage, GeneralEvent, NetworkEvent, WebSocketSink},
@@ -151,23 +149,7 @@ impl<'a> Iterator for ActionMessageIter<'a> {
 /// The second "task" is the `websocket_listener` which accepts new connections
 /// from clients. For every client, a new "task" is spawned that handles all
 /// communication with that specific client.
-pub(crate) fn setup_network(
-    network_ctx: ResMut<Arc<Mutex<NetworkContext>>>,
-    mut app_exit_events: ResMut<Events<AppExit>>,
-) {
-    let port = if let Some(port_str) = std::env::args().nth(1) {
-        match port_str.parse::<u16>() {
-            Ok(port) => port,
-            Err(_) => {
-                println!("Unable to parse port into u16: {}", port_str);
-                app_exit_events.send(AppExit);
-                return;
-            }
-        }
-    } else {
-        8080
-    };
-
+pub(crate) fn setup_network(network_ctx: ResMut<Arc<Mutex<NetworkContext>>>, port: Res<Port>) {
     let (channel_tx, channel_rx) = channel::unbounded();
     let (common_client_tx, common_client_rx) = channel::bounded(EVENT_CHANNEL_BUF_SIZE);
     network_ctx.lock().unwrap().channel_tx = Some(channel_tx.clone());
@@ -179,7 +161,7 @@ pub(crate) fn setup_network(
     ))
     .detach();
 
-    let server_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port);
+    let server_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), **port);
     let id_generator = Arc::clone(&network_ctx.lock().unwrap().id_generator);
     smol::spawn(websocket_listener(server_addr, id_generator, channel_tx)).detach();
 }
@@ -217,7 +199,7 @@ async fn event_message_handler(
     {
         // Edge-case to handle new connection. Need to setup all the structures
         // before starting the "processing" of the message/event.
-        if let NetworkEvent::General(GeneralEvent::Connected(ref mut sink_opt)) = event {
+        if let NetworkEvent::General(GeneralEvent::Connected(_, ref mut sink_opt)) = event {
             println!(
                 "EventMessageContext-handler :: Received connect from player with ID: {}",
                 player_id
@@ -350,7 +332,7 @@ async fn websocket_client_handler(
     let (client_tx, mut client_rx) = match async_tungstenite::accept_async(client_stream).await {
         Ok(websocket_stream) => websocket_stream.split(),
         Err(err) => {
-            println!(
+            eprintln!(
                 "Unable to create websocket connection on addr {}: {:#?}",
                 client_addr, err
             );
@@ -358,24 +340,54 @@ async fn websocket_client_handler(
         }
     };
 
+    let connect_msg = match client_rx.next().await {
+        Some(Ok(msg)) => msg,
+        Some(Err(err)) => {
+            eprintln!(
+                "Received error from client with player id \"{}\" when waiting for connect msg: {}",
+                player_id, err
+            );
+            return;
+        }
+        None => {
+            eprintln!(
+                "Channel closed by client with player id \"{}\" when waiting for connect msg.",
+                player_id
+            );
+            return;
+        }
+    };
+
+    let connect_event = decode_message(&connect_msg.into_data());
+    let name = if let NetworkEvent::General(GeneralEvent::Connected(name, _)) = connect_event {
+        name
+    } else {
+        eprintln!(
+            "Got invalid message type when expecting connect msg from player with ID {}: {:#?}",
+            player_id, connect_event
+        );
+        return;
+    };
+
     if let Err(err) = channel_tx
         .send(EventMessage {
             player_id,
-            event: NetworkEvent::General(GeneralEvent::Connected(Some(client_tx))),
+            event: NetworkEvent::General(GeneralEvent::Connected(name, Some(client_tx))),
         })
         .await
     {
-        println!(
-            "Unable to put connect message into internal channel: {:#?}",
-            err
+        eprintln!(
+            "Unable to put connect message into internal channel for player with ID {}: {:#?}",
+            player_id, err
         );
+        return;
     }
 
     loop {
         let msg_result = match client_rx.next().await {
             Some(msg_result) => msg_result,
             None => {
-                println!("Channel closed from client with player id {}.", player_id);
+                eprintln!("Channel closed by client with player id {}.", player_id);
                 break;
             }
         };
@@ -383,7 +395,7 @@ async fn websocket_client_handler(
         let msg = match msg_result {
             Ok(msg) => msg,
             Err(err) => {
-                println!(
+                eprintln!(
                     "Received error from client with player id {}: {}",
                     player_id, err
                 );
@@ -393,7 +405,10 @@ async fn websocket_client_handler(
 
         let event = decode_message(&msg.into_data());
         if let Err(err) = channel_tx.send(EventMessage { player_id, event }).await {
-            println!("Unable to put message into internal channel: {:#?}", err);
+            eprintln!(
+                "Unable to put message into internal channel for player with ID {}: {:#?}",
+                player_id, err
+            );
         }
     }
 
@@ -404,9 +419,9 @@ async fn websocket_client_handler(
         })
         .await
     {
-        println!(
-            "Unable to put disconnect message into internal channel: {:#?}",
-            err
+        eprintln!(
+            "Unable to put disconnect message into internal channel for player with ID {}: {:#?}",
+            player_id, err
         );
     }
 

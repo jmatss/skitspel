@@ -6,12 +6,17 @@
         <style>
             html, body {
                 background-color: #000;
+                color: #fff;
                 height: 95%;
                 margin: 0px;
             }
             button {
                 width: 100%;
                 height: 18vh;
+                float: left;
+            }
+            input {
+                width: 100%;
                 float: left;
             }
             .bottom {
@@ -21,20 +26,5 @@
             }
         </style>
     </head>
-    <body onload="init()">
-        <button onmousedown="mouseDown(upPressed)" onmouseup="mouseUp(upReleased)" onmouseout="mouseOut(upReleased)">Up</button>
-        <div>
-            <button style="width: 50%;" onmousedown="mouseDown(leftPressed)" onmouseup="mouseUp(leftReleased)" onmouseout="mouseOut(leftReleased)">Left</button>
-            <button style="width: 50%;" onmousedown="mouseDown(rightPressed)" onmouseup="mouseUp(rightReleased)" onmouseout="mouseOut(rightReleased)">Right</button>
-        </div>
-        <button onmousedown="mouseDown(downPressed)" onmouseup="mouseUp(downReleased)" onmouseout="mouseOut(downReleased)">Down</button>
-        <div>
-            <button style="width: 50%; margin-top: 5vh;" onmousedown="mouseDown(aPressed)" onmouseup="mouseUp(aReleased)" onmouseout="mouseOut(aReleased)">A</button>
-            <button style="width: 50%; margin-top: 5vh;" onmousedown="mouseDown(bPressed)" onmouseup="mouseUp(bReleased)" onmouseout="mouseOut(bReleased)">B</button>
-        </div>
-        <div class="bottom">
-            <button style="width: 50%; height: 5vh;" onclick="init()">Connect</button>
-            <button style="width: 50%; height: 5vh;" onclick="exit()">Disconnect</button>
-        </div>
-    </body>
+    <body onload="navigateToConnect()"/>
 </html>
