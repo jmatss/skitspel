@@ -13,8 +13,8 @@ use bevy::{
 use bevy_rapier2d::prelude::ColliderType;
 
 use skitspel::{
-    ActionEvent, ConnectedPlayers, DisconnectedPlayers, GameState, PlayerId, Players, COLORS,
-    GAME_HEIGHT, PLAYER_RADIUS,
+    ActionEvent, ConnectedPlayers, DisconnectedPlayers, GameState, Player, PlayerId, Players,
+    COLORS, GAME_HEIGHT, PLAYER_RADIUS,
 };
 use util_bevy::{despawn_entity, despawn_system, AsBevyColor, Fonts, PlayerVote, VoteEvent};
 use util_rapier::{move_players, spawn_border_walls, spawn_player};
@@ -82,15 +82,7 @@ fn handle_connect(
         for player in connected_players.values() {
             // TODO: Randomize position?
             let pos = Vec2::new(0.0, 0.0);
-            spawn_player_with_text(
-                &mut commands,
-                &fonts,
-                player.id(),
-                player.score(),
-                player.color().as_bevy(),
-                pos,
-                PLAYER_RADIUS,
-            );
+            spawn_player_with_text(&mut commands, &fonts, player, pos, PLAYER_RADIUS);
         }
     }
 }
@@ -200,7 +192,7 @@ fn handle_ready_event(
 
             for child_entity in children.iter() {
                 if let Ok(mut text) = player_ready_text.get_mut(*child_entity) {
-                    if let Some(ready_section) = text.sections.get_mut(1) {
+                    if let Some(ready_section) = text.sections.get_mut(2) {
                         let font = fonts.regular.clone();
                         let font_size = 24.0;
                         *ready_section = ready_text_section(is_ready, font, font_size);
@@ -233,9 +225,7 @@ fn handle_ready_event(
 fn spawn_player_with_text(
     commands: &mut Commands,
     fonts: &Fonts,
-    player_id: PlayerId,
-    player_score: usize,
-    color: Color,
+    player: &Player,
     pos: Vec2,
     radius: f32,
 ) {
@@ -246,7 +236,15 @@ fn spawn_player_with_text(
         text: Text {
             sections: vec![
                 TextSection {
-                    value: format!(" \n\n\nScore: {}\n", player_score),
+                    value: format!(" \n\n\n{}", player.name()),
+                    style: TextStyle {
+                        font: font.clone(),
+                        font_size,
+                        color: Color::WHITE,
+                    },
+                },
+                TextSection {
+                    value: format!("\nScore: {}\n", player.score()),
                     style: TextStyle {
                         font: font.clone(),
                         font_size,
@@ -263,7 +261,7 @@ fn spawn_player_with_text(
         ..Default::default()
     };
 
-    spawn_player(commands, player_id, color, pos, radius)
+    spawn_player(commands, player.id(), player.color().as_bevy(), pos, radius)
         .insert(MenuPlugin)
         .with_children(|parent| {
             parent.spawn_bundle(text_bundle);
@@ -318,15 +316,7 @@ fn setup_menu(
     for player in players.values_mut() {
         // TODO: Randomize position?
         let pos = Vec2::new(0.0, 0.0);
-        spawn_player_with_text(
-            &mut commands,
-            &fonts,
-            player.id(),
-            player.score(),
-            player.color().as_bevy(),
-            pos,
-            PLAYER_RADIUS,
-        );
+        spawn_player_with_text(&mut commands, &fonts, player, pos, PLAYER_RADIUS);
     }
 
     let text_sections = vec![
