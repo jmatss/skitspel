@@ -9,28 +9,37 @@ var buttonPressed = false;
 var keyEventsActive = false;
 
 function navigateToConnect() {
-    document.body.innerHTML =
-          'Name: <input type="text" id="name"><br/>'
-        + 'Host: <input type="text" id="host"><br/>'
-        + 'Port: <input type="number" id="port"><br/>'
-        + '<button onmousedown="connect()">Connect</button>';
+    document.body.innerHTML = 
+          '<div id="header">SKITSPEL</div>'
+        + '<div id="login-form">'
+        + '    <div class="login-field">'
+        + '        <div class="login-label">Name</div>'
+        + '        <input class="login-input" type="text" id="name">'
+        + '    </div>'
+        + '    <div class="login-field">'
+        + '        <div class="login-label">Host</div>'
+        + '        <input class="login-input" type="text" id="host">'
+        + '    </div>'
+        + '    <div class="login-field">'
+        + '        <div class="login-label">Port</div>'
+        + '        <input class="login-input" type="text" id="port">'
+        + '    </div>'
+        + '    <button class="login-button" onmousedown="connect()">Connect</button>'
+        + '</div>';
     keyEventsActive = false;
 }
 
 function navigateToButtons() {
     document.body.innerHTML =
-          '<button onmousedown="mouseDown(upPressed)" onmouseup="mouseUp(upReleased)" onmouseout="mouseOut(upReleased)">Up</button>'
-        + '<div>'
-        + '    <button style="width: 50%;" onmousedown="mouseDown(leftPressed)" onmouseup="mouseUp(leftReleased)" onmouseout="mouseOut(leftReleased)">Left</button>'
-        + '    <button style="width: 50%;" onmousedown="mouseDown(rightPressed)" onmouseup="mouseUp(rightReleased)" onmouseout="mouseOut(rightReleased)">Right</button>'
+          '<button class="game-button game-button-up" onmousedown="mouseDown(upPressed)" onmouseup="mouseUp(upReleased)" onmouseout="mouseOut(upReleased)">Up</button>'
+        + '<div class="game-button-sides">'
+        + '    <button class="game-button game-button-left" onmousedown="mouseDown(leftPressed)" onmouseup="mouseUp(leftReleased)" onmouseout="mouseOut(leftReleased)">Left</button>'
+        + '    <button class="game-button game-button-right" onmousedown="mouseDown(rightPressed)" onmouseup="mouseUp(rightReleased)" onmouseout="mouseOut(rightReleased)">Right</button>'
         + '</div>'
-        + '<button onmousedown="mouseDown(downPressed)" onmouseup="mouseUp(downReleased)" onmouseout="mouseOut(downReleased)">Down</button>'
-        + '<div>'
-        + '    <button style="width: 50%; margin-top: 5vh;" onmousedown="mouseDown(aPressed)" onmouseup="mouseUp(aReleased)" onmouseout="mouseOut(aReleased)">A</button>'
-        + '    <button style="width: 50%; margin-top: 5vh;" onmousedown="mouseDown(bPressed)" onmouseup="mouseUp(bReleased)" onmouseout="mouseOut(bReleased)">B</button>'
-        + '</div>'
+        + '<button class="game-button game-button-down" onmousedown="mouseDown(downPressed)" onmouseup="mouseUp(downReleased)" onmouseout="mouseOut(downReleased)">Down</button>'
         + '<div class="bottom">'
-        + '    <button style="width: 100%; height: 5vh;" onclick="disconnect()">Disconnect</button>'
+        + '    <button class="game-button game-button-a" onmousedown="mouseDown(aPressed)" onmouseup="mouseUp(aReleased)" onmouseout="mouseOut(aReleased)">A</button>'
+        + '    <button class="game-button game-button-b" onmousedown="mouseDown(bPressed)" onmouseup="mouseUp(bReleased)" onmouseout="mouseOut(bReleased)">B</button>'
         + '</div>';
     keyEventsActive = true;
 }

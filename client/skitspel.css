@@ -1,0 +1,115 @@
+html, body {
+    background-color: #191919;
+    color: #c9d1d9;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 14px;
+    text-align: center;
+    height: 100%;
+    margin: 0px;
+}
+.bottom {
+    box-sizing: border-box;
+    bottom: 0px;
+    width: 100%;
+    position: fixed;
+    padding: 10px;
+}
+.game-button {
+    background-color: #313131;
+    color: #c9d1d9;
+    font-size: 24px;
+    font-weight: bold;
+    width: 50%;
+    height: 19vh;
+    float: center;
+    border-radius: 5px;
+    border: 1px solid #404040;
+}
+.game-button-up {
+    border-radius: 5px 5px 0px 0px;
+    border-bottom: none;
+    margin-top: 10px;
+}
+.game-button-down {
+    border-radius: 0px 0px 5px 5px;
+    border-top: none;
+}
+.game-button-a {
+    background-color: #25803e;
+    width: 100%;
+    margin-top: 5px;
+    border-radius: 5px 5px 0px 0px;
+    border: none;
+}
+.game-button-b {
+    background-color: #802525;
+    width: 100%;
+    border-radius: 0px 0px 5px 5px;
+    border: none;
+}
+.game-button-sides {
+    box-sizing: border-box;
+    width: 100%;
+    padding-left: 10px;
+    padding-right: 10px;
+}
+.game-button-left {
+    width: 50%;
+    float: left;
+    border-radius: 5px 0px 0px 5px;
+    border-right: none;
+}
+.game-button-right {
+    width: 50%;
+    float: right;
+    border-radius: 0px 5px 5px 0px;
+}
+.login-field {
+    box-sizing: border-box;
+    width: 100%;
+    display: flex;
+}
+.login-label {
+    display: table-cell;
+    text-align: left;
+    min-width: 45px;
+    margin-top: 4px;
+}
+.login-input {
+    display: table-cell;
+    box-sizing: border-box;
+    background-color: #121212;
+    color: #c9d1d9;
+    flex-grow: 1;
+    padding: 5px;
+    vertical-align: top;
+    margin-bottom: 15px;
+    border-radius: 5px;
+    border: 1px solid #303030;
+}
+.login-button {
+    background-color: #802525;
+    color: #c9d1d9;
+    width: 100%;
+    height: 40px;
+    float: left;
+    padding: 5px;
+    margin-top: 5px;
+    border-radius: 5px;
+    border: none;
+}
+#login-form {
+    display: inline-block;
+    background-color: #1d1d1d;
+    width: 400px;
+    height: fit-content;
+    padding: 20px;
+    border-radius: 5px;
+    border: 1px solid #303030;
+}
+#header {
+    font-size: 36px;
+    font-weight: bold;
+    margin-top: 50px;
+    margin-bottom: 20px;
+}
