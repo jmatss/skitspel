@@ -17,14 +17,15 @@
 //!   9  => AReleased
 //!   10 => BPressed
 //!   11 => BReleased
-use async_tungstenite::{tungstenite::Message, WebSocketStream};
+use async_tungstenite::tungstenite::Message;
 use bevy::core::Timer;
 use futures_util::stream::SplitSink;
-use smol::net::TcpStream;
 
 use skitspel::{ActionEvent, PlayerId};
 
-pub type WebSocketSink = SplitSink<WebSocketStream<TcpStream>, Message>;
+use crate::wsstream::WsStream;
+
+pub type WebSocketSink = SplitSink<WsStream, Message>;
 
 /// A timer used to synchronize action events.
 ///

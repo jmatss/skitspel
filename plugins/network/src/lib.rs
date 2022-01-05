@@ -1,5 +1,6 @@
 mod event;
 mod network;
+mod wsstream;
 
 use std::sync::{Arc, Mutex};
 

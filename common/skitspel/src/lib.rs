@@ -1,11 +1,13 @@
 pub use action::{ActionEvent, PlayerAction};
 pub use color::Color;
+pub use network::{Port, TLSCertificate};
 pub use player::{
     ConnectedPlayers, DisconnectedPlayers, Player, PlayerId, PlayerIdGenerator, Players,
 };
 
 mod action;
 mod color;
+mod network;
 mod player;
 
 /// All possible states in the game.

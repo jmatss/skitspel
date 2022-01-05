@@ -1,4 +1,8 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    io::ErrorKind,
+    process::exit,
+    sync::{Arc, Mutex},
+};
 
 use bevy::{
     app::Events,
@@ -15,14 +19,16 @@ use bevy::{
 };
 use bevy_prototype_lyon::plugin::ShapePlugin;
 use bevy_rapier2d::prelude::*;
+use clap::Arg;
 use rand::Rng;
+use rpassword::prompt_password_stdout;
 use smol::io;
 
 use skitspel::{
-    ActionEvent, ConnectedPlayers, DisconnectedPlayers, GameState, Player, Players, COLORS,
-    GAME_HEIGHT, GAME_WIDTH, RAPIER_SCALE_FACTOR,
+    ActionEvent, ConnectedPlayers, DisconnectedPlayers, GameState, Player, Players, Port,
+    TLSCertificate, COLORS, GAME_HEIGHT, GAME_WIDTH, RAPIER_SCALE_FACTOR,
 };
-use util_bevy::{Fonts, Game, Games, Port, VoteEvent};
+use util_bevy::{Fonts, Game, Games, VoteEvent};
 
 use achtung::AchtungGamePlugin;
 use hockey::HockeyGamePlugin;
@@ -36,41 +42,105 @@ use volleyball::VolleyBallGamePlugin;
 
 fn main() -> io::Result<()> {
     std::env::set_var("SMOL_THREADS", num_cpus::get().to_string());
-    smol::block_on(async {
-        App::build()
-            .insert_resource(WindowDescriptor {
-                title: "skitspel".to_string(),
-                width: GAME_WIDTH,
-                height: GAME_HEIGHT,
-                ..Default::default()
+
+    let matches = clap::App::new("skitspel")
+        .arg(
+            Arg::new("port")
+                .short('p')
+                .long("port")
+                .value_name("PORT")
+                .help("The port number to listen on.")
+                .takes_value(true)
+                .required(true),
+        )
+        .arg(
+            Arg::new("nocert")
+                .short('n')
+                .long("nocert")
+                .help("Specify if no TLS should be used.")
+                .takes_value(false)
+                .required(false),
+        )
+        .arg(
+            Arg::new("cert")
+                .short('c')
+                .long("cert")
+                .value_name("PATH")
+                .help("Path to certificate in pkcs12 format. Used for TLS.")
+                .takes_value(true)
+                .required(false),
+        )
+        .get_matches();
+
+    let port_nr = matches.value_of("port").unwrap().parse().map_err(|_| {
+        io::Error::new(
+            ErrorKind::Other,
+            format!(
+                "Unable to parse specified port as u16: {:?}",
+                matches.value_of("port")
+            ),
+        )
+    })?;
+
+    let tls_cert = if !matches.is_present("nocert") {
+        if let Some(path) = matches.value_of("cert") {
+            let password = prompt_password_stdout("Password for certificate:")?;
+            Some(TLSCertificate {
+                path: path.into(),
+                password,
             })
-            .insert_resource(ClearColor(Color::rgb(0.1, 0.1, 0.1)))
-            .insert_resource(Msaa { samples: 4 })
-            .init_resource::<Players>()
-            .init_resource::<ConnectedPlayers>()
-            .init_resource::<DisconnectedPlayers>()
-            .init_resource::<Games>()
-            .init_resource::<Fonts>()
-            .init_resource::<Port>()
-            .add_event::<VoteEvent>()
-            .add_plugins(DefaultPlugins)
-            .add_plugin(ShapePlugin)
-            .add_plugin(RapierPhysicsPlugin::<NoUserData>::default())
-            .add_plugin(RapierRenderPlugin)
-            .add_plugin(NetworkPlugin)
-            .add_plugin(MenuPlugin)
-            .add_plugin(GameSelectionPlugin)
-            .add_plugin(PushGamePlugin)
-            .add_plugin(HockeyGamePlugin)
-            .add_plugin(VolleyBallGamePlugin)
-            .add_plugin(AchtungGamePlugin)
-            .add_state(GameState::StartMenu)
-            .add_startup_system(common_setup.system())
-            .add_system(camera_scaling_fix.system())
-            .add_system(handle_general_message.system())
-            .add_system(handle_action_message.system())
-            .add_system(handle_fullscreen.system())
-            .run();
+        } else {
+            eprintln!(
+                "Need to specify path to TLS certficicate. \
+                If you want to run without TLS, use the `nocert` option."
+            );
+            exit(1);
+        }
+    } else {
+        None
+    };
+
+    smol::block_on(async {
+        let mut app = App::build();
+
+        app.insert_resource(WindowDescriptor {
+            title: "skitspel".to_string(),
+            width: GAME_WIDTH,
+            height: GAME_HEIGHT,
+            ..Default::default()
+        })
+        .insert_resource(ClearColor(Color::rgb(0.1, 0.1, 0.1)))
+        .insert_resource(Msaa { samples: 4 })
+        .insert_resource(Port(port_nr))
+        .init_resource::<Players>()
+        .init_resource::<ConnectedPlayers>()
+        .init_resource::<DisconnectedPlayers>()
+        .init_resource::<Games>()
+        .init_resource::<Fonts>()
+        .add_event::<VoteEvent>()
+        .add_plugins(DefaultPlugins)
+        .add_plugin(ShapePlugin)
+        .add_plugin(RapierPhysicsPlugin::<NoUserData>::default())
+        .add_plugin(RapierRenderPlugin)
+        .add_plugin(NetworkPlugin)
+        .add_plugin(MenuPlugin)
+        .add_plugin(GameSelectionPlugin)
+        .add_plugin(PushGamePlugin)
+        .add_plugin(HockeyGamePlugin)
+        .add_plugin(VolleyBallGamePlugin)
+        .add_plugin(AchtungGamePlugin)
+        .add_state(GameState::StartMenu)
+        .add_startup_system(common_setup.system())
+        .add_system(camera_scaling_fix.system())
+        .add_system(handle_general_message.system())
+        .add_system(handle_action_message.system())
+        .add_system(handle_fullscreen.system());
+
+        if let Some(tls_cert) = tls_cert {
+            app.insert_resource(tls_cert);
+        }
+
+        app.run();
         Ok(())
     })
 }

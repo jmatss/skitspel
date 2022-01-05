@@ -1,22 +1,24 @@
 use std::{
     collections::{hash_map::Entry, HashMap},
+    error::Error,
     net::{Ipv4Addr, SocketAddr},
     sync::{Arc, Mutex},
 };
 
-use async_native_tls::Identity;
-use bevy::prelude::*;
-use futures_util::stream::StreamExt;
+use async_native_tls::{Identity, TlsAcceptor};
+use async_tungstenite::WebSocketStream;
+use bevy::{app::AppExit, prelude::*};
+use futures_util::{stream::StreamExt, AsyncRead, AsyncWrite};
 use smol::{
     channel::{self, Receiver, Sender, TryRecvError},
     net::{TcpListener, TcpStream},
 };
 
-use skitspel::{ActionEvent, PlayerId, PlayerIdGenerator};
-use util_bevy::Port;
+use skitspel::{ActionEvent, PlayerId, PlayerIdGenerator, Port, TLSCertificate};
 
 use crate::{
     event::{decode_message, EventMessage, GeneralEvent, NetworkEvent, WebSocketSink},
+    wsstream::WsStream,
     EventTimer,
 };
 
@@ -150,7 +152,12 @@ impl<'a> Iterator for ActionMessageIter<'a> {
 /// The second "task" is the `websocket_listener` which accepts new connections
 /// from clients. For every client, a new "task" is spawned that handles all
 /// communication with that specific client.
-pub(crate) fn setup_network(network_ctx: ResMut<Arc<Mutex<NetworkContext>>>, port: Res<Port>) {
+pub(crate) fn setup_network(
+    network_ctx: ResMut<Arc<Mutex<NetworkContext>>>,
+    port: Res<Port>,
+    tls_cert: Option<Res<TLSCertificate>>,
+    mut exit: EventWriter<AppExit>,
+) {
     let (channel_tx, channel_rx) = channel::unbounded();
     let (common_client_tx, common_client_rx) = channel::bounded(EVENT_CHANNEL_BUF_SIZE);
     network_ctx.lock().unwrap().channel_tx = Some(channel_tx.clone());
@@ -162,9 +169,38 @@ pub(crate) fn setup_network(network_ctx: ResMut<Arc<Mutex<NetworkContext>>>, por
     ))
     .detach();
 
-    let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), **port);
+    let tls = if let Some(tls_cert) = tls_cert {
+        match create_tls_acceptor(&tls_cert) {
+            Ok(tls_acceptor) => Some(Arc::new(tls_acceptor)),
+            Err(e) => {
+                eprintln!("{}", e);
+                exit.send(AppExit);
+                return;
+            }
+        }
+    } else {
+        None
+    };
+
+    let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), port.0);
     let id_generator = Arc::clone(&network_ctx.lock().unwrap().id_generator);
-    smol::spawn(websocket_listener(server_addr, id_generator, channel_tx)).detach();
+    smol::spawn(websocket_listener(
+        server_addr,
+        id_generator,
+        channel_tx,
+        tls,
+    ))
+    .detach();
+}
+
+fn create_tls_acceptor(
+    tls_cert: &TLSCertificate,
+) -> Result<async_native_tls::TlsAcceptor, Box<dyn Error>> {
+    let cert_contents = std::fs::read(&tls_cert.path)?;
+    let identity = Identity::from_pkcs12(&cert_contents, &tls_cert.password)?;
+    Ok(async_native_tls::TlsAcceptor::from(
+        native_tls::TlsAcceptor::new(identity)?,
+    ))
 }
 
 /// A function to handle all the structure/logic inside the one and only
@@ -187,7 +223,7 @@ async fn event_message_handler(
     channel_rx: Receiver<EventMessage>,
     common_client_tx: Sender<EventMessage>,
 ) {
-    println!("Started the EventMessageContext-handler.");
+    println!("event_message_handler :: Started");
 
     // Will contain the senders for the corresponding receivers stored in
     // `event_ctx.client_channels`.
@@ -202,7 +238,7 @@ async fn event_message_handler(
         // before starting the "processing" of the message/event.
         if let NetworkEvent::General(GeneralEvent::Connected(_, ref mut sink_opt)) = event {
             println!(
-                "EventMessageContext-handler :: Received connect from player with ID: {}",
+                "event_message_handler :: Received connect from player with ID: {}",
                 player_id
             );
 
@@ -253,7 +289,7 @@ async fn event_message_handler(
         // before starting to remove the now unnused structures.
         if let NetworkEvent::General(GeneralEvent::Disconnected) = event {
             println!(
-                "EventMessageContext-handler :: Received disconnect from player with ID: {}",
+                "event_message_handler :: Received disconnect from player with ID: {}",
                 player_id
             );
 
@@ -266,7 +302,7 @@ async fn event_message_handler(
         }
     }
 
-    println!("Stopped the EventMessageContext-handler.");
+    println!("event_message_handler :: Stopped");
 }
 
 /// Listens and accepts new websocket connections.
@@ -278,6 +314,7 @@ async fn websocket_listener(
     server_addr: SocketAddr,
     id_generator: Arc<Mutex<PlayerIdGenerator>>,
     channel_tx: Sender<EventMessage>,
+    tls: Option<Arc<TlsAcceptor>>,
 ) {
     let listener = match TcpListener::bind(&server_addr).await {
         Ok(listener) => listener,
@@ -290,17 +327,24 @@ async fn websocket_listener(
         }
     };
 
-    println!("Listening on addr: {}", server_addr);
+    println!("Listening on {}", server_addr);
 
     loop {
         match listener.accept().await {
             Ok((stream, client_addr)) => {
+                let tls = if !is_private_address(client_addr) {
+                    tls.as_ref().map(Arc::clone)
+                } else {
+                    None
+                };
+
                 let player_id = id_generator.lock().unwrap().generate();
                 smol::spawn(websocket_client_handler(
                     player_id,
                     channel_tx.clone(),
                     stream,
                     client_addr,
+                    tls,
                 ))
                 .detach();
             }
@@ -327,18 +371,31 @@ async fn websocket_client_handler(
     channel_tx: Sender<EventMessage>,
     client_stream: TcpStream,
     client_addr: SocketAddr,
+    tls: Option<Arc<TlsAcceptor>>,
 ) {
     println!("Started client handler for player with ID: {}.", player_id);
 
-    let (client_tx, mut client_rx) = match async_tungstenite::accept_async(client_stream).await {
-        Ok(websocket_stream) => websocket_stream.split(),
-        Err(err) => {
-            eprintln!(
-                "Unable to create websocket connection on addr {}: {:#?}",
-                client_addr, err
-            );
-            return;
+    let (client_tx, mut client_rx) = if let Some(tls) = tls {
+        match tls.accept(client_stream).await {
+            Ok(tls_client_stream) => match accept(tls_client_stream, client_addr).await {
+                Some(stream) => WsStream::Tls(stream),
+                None => return,
+            },
+            Err(err) => {
+                eprintln!(
+                    "Unable to create TLS connection on addr {}: {:#?}",
+                    client_addr, err
+                );
+                return;
+            }
         }
+        .split()
+    } else {
+        match accept(client_stream, client_addr).await {
+            Some(stream) => WsStream::Plain(stream),
+            None => return,
+        }
+        .split()
     };
 
     let connect_msg = match client_rx.next().await {
@@ -427,4 +484,41 @@ async fn websocket_client_handler(
     }
 
     println!("Stopped client handler for player with ID: {}.", player_id);
+}
+
+async fn accept<S>(client_stream: S, client_addr: SocketAddr) -> Option<WebSocketStream<S>>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    match async_tungstenite::accept_async(client_stream).await {
+        Ok(websocket_stream) => Some(websocket_stream),
+        Err(err) => {
+            eprintln!(
+                "Unable to create websocket connection on addr {}: {:#?}",
+                client_addr, err
+            );
+            None
+        }
+    }
+}
+
+// TODO: use `socket.ip().is_global()` when it gets stabilized.
+/// Returns true if the given socket address is private. In those cases
+/// we shouldn't use TLS.
+fn is_private_address(socket_addr: SocketAddr) -> bool {
+    match socket_addr {
+        SocketAddr::V4(v4) => {
+            let ip = v4.ip();
+            ip.is_private()
+                || ip.is_loopback()
+                || ip.is_link_local()
+                || ip.is_broadcast()
+                || ip.is_documentation()
+                || ip.is_unspecified()
+        }
+        SocketAddr::V6(v6) => {
+            let ip = v6.ip();
+            ip.is_loopback() || ip.is_multicast() || ip.is_unspecified()
+        }
+    }
 }
