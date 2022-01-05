@@ -4,6 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use async_native_tls::Identity;
 use bevy::prelude::*;
 use futures_util::stream::StreamExt;
 use smol::{
@@ -161,7 +162,7 @@ pub(crate) fn setup_network(network_ctx: ResMut<Arc<Mutex<NetworkContext>>>, por
     ))
     .detach();
 
-    let server_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), **port);
+    let server_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), **port);
     let id_generator = Arc::clone(&network_ctx.lock().unwrap().id_generator);
     smol::spawn(websocket_listener(server_addr, id_generator, channel_tx)).detach();
 }
