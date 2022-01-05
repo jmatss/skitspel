@@ -8,10 +8,18 @@ var buttonPressed = false;
 // to move the player in games.
 var keyEventsActive = false;
 
+// Set to true when we are waiting for a response from the server when trying
+// to connect.
+var connectingToWebsocket = false;
+
 function navigateToConnect() {
     document.body.innerHTML = 
           '<div id="header">SKITSPEL</div>'
         + '<div id="login-form">'
+        + '    <div class="login-field">'
+        + '        <div class="login-label">TLS</div>'
+        + '        <input class="login-checkbox" type="checkbox" id="tls" checked>'
+        + '    </div>'
         + '    <div class="login-field">'
         + '        <div class="login-label">Name</div>'
         + '        <input class="login-input" type="text" id="name">'
@@ -24,7 +32,7 @@ function navigateToConnect() {
         + '        <div class="login-label">Port</div>'
         + '        <input class="login-input" type="text" id="port">'
         + '    </div>'
-        + '    <button class="login-button" onmousedown="connect()">Connect</button>'
+        + '    <button class="login-button" type="submit" onmousedown="connect()">Connect</button>'
         + '</div>';
     keyEventsActive = false;
 }
@@ -48,10 +56,14 @@ function connect() {
     if ("WebSocket" in window) {
         if (typeof webSocket !== "undefined") {
             navigateToButtons();
-            alert("Already connected.");
-            return
+            alert("Already connected to server.");
+            return;
+        } else if (connectingToWebsocket) {
+            alert("Already trying to connect.");
+            return;
         }
 
+        const tls = document.getElementById("tls").checked;
         const name = document.getElementById("name").value;
         const host = document.getElementById("host").value;
         const port = parseInt(document.getElementById("port").value);
@@ -67,12 +79,15 @@ function connect() {
             return;
         }
 
-        const addr = "ws://" + host + ":" + port;
+        const protocol = tls ? "wss" : "ws";
+        const addr = protocol + "://" + host + ":" + port;
         const localWebSocket = new WebSocket(addr);
 
+        connectingToWebsocket = true;
         console.log("Connecting to address \"" + addr + "\" with name \"" + name + "\"");
 
         localWebSocket.onopen = function(_) {
+            connectingToWebsocket = false;
             navigateToButtons();
             const connectMsg = [1].concat(stringToUTF8Array(name));
             localWebSocket.send(new Uint8Array(connectMsg));
@@ -80,9 +95,14 @@ function connect() {
         };
 
         localWebSocket.onclose = function(_) {
-            navigateToConnect();
-            alert("Websocket connection closed.");
-            webSocket = undefined;
+            connectingToWebsocket = false;
+            if (typeof webSocket !== "undefined") {
+                alert("Connection to server closed.");
+                webSocket = undefined;
+                navigateToConnect();
+            } else {
+                alert("Unable to connect to server.");
+            }
         };
     } else {
         alert("Websockets not supported in this browser.");

@@ -87,16 +87,21 @@ html, body {
     border-radius: 5px;
     border: 1px solid #303030;
 }
+.login-checkbox {
+    margin: 6px 0px 15px 0px;
+}
 .login-button {
     background-color: #802525;
     color: #c9d1d9;
     width: 100%;
     height: 40px;
-    float: left;
     padding: 5px;
     margin-top: 5px;
     border-radius: 5px;
     border: none;
+}
+.login-button:active {
+    background-color: #631515;
 }
 #login-form {
     display: inline-block;
