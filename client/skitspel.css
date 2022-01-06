@@ -5,12 +5,22 @@ html, body {
     font-size: 14px;
     text-align: center;
     height: 100%;
+    height: -webkit-fill-available;
     margin: 0px;
+}
+button {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    -khtml-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
 }
 .bottom {
     box-sizing: border-box;
     bottom: 0px;
     width: 100%;
+    height: 38%;
     position: fixed;
     padding: 10px;
 }
@@ -20,7 +30,7 @@ html, body {
     font-size: 24px;
     font-weight: bold;
     width: 50%;
-    height: 19vh;
+    height: 19%;
     float: center;
     border-radius: 5px;
     border: 1px solid #404040;
@@ -37,6 +47,7 @@ html, body {
 .game-button-a {
     background-color: #25803e;
     width: 100%;
+    height: 50%;
     margin-top: 5px;
     border-radius: 5px 5px 0px 0px;
     border: none;
@@ -44,27 +55,32 @@ html, body {
 .game-button-b {
     background-color: #802525;
     width: 100%;
+    height: 50%;
     border-radius: 0px 0px 5px 5px;
     border: none;
 }
 .game-button-sides {
     box-sizing: border-box;
     width: 100%;
+    height: 19%;
     padding-left: 10px;
     padding-right: 10px;
 }
 .game-button-left {
     width: 50%;
+    height: 100%;
     float: left;
     border-radius: 5px 0px 0px 5px;
     border-right: none;
 }
 .game-button-right {
     width: 50%;
+    height: 100%;
     float: right;
     border-radius: 0px 5px 5px 0px;
 }
 .login-field {
+    display: table-row;
     box-sizing: border-box;
     width: 100%;
     display: flex;
@@ -105,10 +121,13 @@ html, body {
 }
 #login-form {
     display: inline-block;
+    box-sizing: border-box;
     background-color: #1d1d1d;
-    width: 400px;
+    width: 100%;
+    max-width: 400px;
     height: fit-content;
     padding: 20px;
+    margin: 0;
     border-radius: 5px;
     border: 1px solid #303030;
 }
