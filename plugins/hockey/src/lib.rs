@@ -20,8 +20,8 @@ use bevy_rapier2d::{
     physics::{ColliderBundle, ColliderPositionSync, IntoEntity, RigidBodyBundle},
     prelude::{
         ActiveEvents, ColliderFlags, ColliderMassProps, ColliderMaterial, ColliderShape,
-        ColliderType, IntersectionEvent, RigidBodyActivation, RigidBodyDamping, RigidBodyMassProps,
-        RigidBodyPosition, RigidBodyType, RigidBodyVelocity,
+        ColliderType, IntersectionEvent, RigidBodyActivation, RigidBodyCcd, RigidBodyDamping,
+        RigidBodyMassProps, RigidBodyPosition, RigidBodyType, RigidBodyVelocity,
     },
 };
 use rand::{prelude::SliceRandom, Rng};
@@ -58,7 +58,7 @@ const SPAWN_POSITIONS_RIGHT: [(f32, f32); 5] = [
 struct LeftScoreText;
 struct RightScoreText;
 
-const DASH_TEXT: &str = "Press A to dash (2 sec cooldown)\n";
+const DASH_TEXT: &str = "Press A to dash\n";
 const EXIT_TEXT: &str = "Press B to go back to main menu";
 
 /// The height and width of the dash cooldown UI under the players.
@@ -1173,6 +1173,12 @@ fn spawn_puck(commands: &mut Commands, mut pos: Vec2, mut radius: f32, color: Co
         damping: RigidBodyDamping {
             linear_damping: 0.5,
             angular_damping: 0.5,
+        },
+        // Ensures that collisions are always detected even though the puck is
+        // moving so fast that it moves through a wall during one tick.
+        ccd: RigidBodyCcd {
+            ccd_enabled: true,
+            ..Default::default()
         },
         position: pos.into(),
         activation: RigidBodyActivation::cannot_sleep(),
