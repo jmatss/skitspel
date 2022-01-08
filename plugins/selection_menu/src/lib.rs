@@ -410,13 +410,7 @@ fn setup_menu(mut commands: Commands, players: Res<Players>, fonts: Res<Fonts>) 
 }
 
 fn setup_selectable_games(mut commands: Commands, fonts: Res<Fonts>, games: Res<Games>) {
-    let selected_idx = if games.len() <= 1 {
-        0
-    } else if games.len() % 2 == 0 {
-        games.len() / 2 - 1
-    } else {
-        games.len() / 2
-    };
+    let selected_idx = 0;
     commands
         .spawn()
         .insert(SelectedGame(selected_idx))
