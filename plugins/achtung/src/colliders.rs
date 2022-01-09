@@ -74,26 +74,32 @@ impl Colliders {
     }
 
     /// Returns true if the given point `p` is located inside one of the colliders.
-    pub fn is_collision(&self, p: Vec2) -> bool {
+    /// If `player_is_jumping` is set to true, the collision check will only be
+    /// done with the "screen borders", no collision detection with tails will be
+    /// done.
+    pub fn is_collision(&self, p: Vec2, player_is_jumping: bool) -> bool {
         if self.screen_border_collision(p) {
             return true;
         }
 
-        let zone_idx = self.zone_idx(p);
-        let zone_colliders = if let Some(colliders) = self.colliders.get(&zone_idx) {
-            colliders
-        } else {
-            // No colliders in this zone, so nothing to collide with.
-            return false;
-        };
+        if !player_is_jumping {
+            let zone_idx = self.zone_idx(p);
+            let zone_colliders = if let Some(colliders) = self.colliders.get(&zone_idx) {
+                colliders
+            } else {
+                // No colliders in this zone, so nothing to collide with.
+                return false;
+            };
 
-        for collider in zone_colliders {
-            if self.bounding_box_collision(p, collider)
-                && self.horizontal_line_collision(p, collider)
-            {
-                return true;
+            for collider in zone_colliders {
+                if self.bounding_box_collision(p, collider)
+                    && self.horizontal_line_collision(p, collider)
+                {
+                    return true;
+                }
             }
         }
+
         false
     }
 

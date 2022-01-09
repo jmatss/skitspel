@@ -1,17 +1,19 @@
 use std::{
     cmp::Reverse,
+    collections::HashSet,
     f32::consts::{PI, TAU},
     ops::{Deref, DerefMut},
+    time::Duration,
 };
 
 use bevy::{
     core::{Time, Timer},
-    math::Vec2,
+    math::{Quat, Vec2, Vec3},
     prelude::{
-        AppBuilder, Assets, BuildChildren, Children, Color, Commands, Entity, EventReader,
-        EventWriter, HorizontalAlign, IntoSystem, Local, Mesh, MeshBundle,
-        ParallelSystemDescriptorCoercion, Plugin, Query, RenderPipelines, Res, ResMut, State,
-        SystemSet, Transform, VerticalAlign, With,
+        AppBuilder, Assets, BuildChildren, Children, Color, Commands, CoreStage, Entity,
+        EventReader, EventWriter, GlobalTransform, HorizontalAlign, IntoSystem, Local, Mesh,
+        MeshBundle, ParallelSystemDescriptorCoercion, Plugin, Query, RenderPipelines, Res, ResMut,
+        State, SystemSet, SystemStage, Transform, VerticalAlign, With,
     },
     render::{mesh::Indices, pipeline::PrimitiveTopology},
     text::{Text, Text2dBundle, TextAlignment, TextSection, TextStyle},
@@ -21,8 +23,8 @@ use bevy_rapier2d::{
     na::UnitComplex,
     physics::{ColliderBundle, ColliderPositionSync, RigidBodyBundle},
     prelude::{
-        ColliderShape, ColliderType, Isometry, RigidBodyActivation, RigidBodyDamping,
-        RigidBodyMassProps, RigidBodyPosition, RigidBodyType, RigidBodyVelocity,
+        ColliderFlags, ColliderShape, ColliderType, InteractionGroups, Isometry,
+        RigidBodyActivation, RigidBodyDamping, RigidBodyPosition, RigidBodyType, RigidBodyVelocity,
     },
 };
 use rand::{prelude::SliceRandom, Rng};
@@ -59,9 +61,7 @@ const SPAWN_POSITIONS: [(f32, f32); 12] = [
     (GAME_WIDTH * 0.3, -GAME_HEIGHT * 0.25),
 ];
 
-// TODO:
-//const EXPLOTION_TEXT: &str = "Press A to create explotion (5 sec cooldown)\n";
-const EXPLOTION_TEXT: &str = "\n";
+const JUMP_TEXT: &str = "Press A to jump\n";
 const EXIT_TEXT: &str = "Press B to go back to main menu";
 
 /// The thickness/size of the player character.
@@ -73,9 +73,15 @@ const TAIL_THICKNESS: f32 = 10.0;
 const ACHTUNG_CONSTANT_SPEED: f32 = 400.0;
 const ACHTUNG_CONSTANT_TORQUE: f32 = 150.0;
 
-/// The height and width of the explotion cooldown UI over the players.
-const EXPLOTION_COOLDOWN_WIDTH: f32 = PLAYER_THICKNESS * 1.5;
-const EXPLOTION_COOLDOWN_HEIGHT: f32 = 10.0;
+/// The height and width of the cooldown UI under the players.
+const JUMP_COOLDOWN_WIDTH: f32 = PLAYER_THICKNESS * 1.5;
+const JUMP_COOLDOWN_HEIGHT: f32 = 7.0;
+
+/// How long time a jump takes (seconds).
+const JUMP_TIME: f32 = 0.75;
+
+/// The time it takes for the jump cooldown to reset.
+const JUMP_COOLDOWN_TIME: f32 = 8.0 + JUMP_TIME;
 
 /// How often a tail is spawned (seconds).
 const TAIL_SPAWN_TIME: f32 = 1.0 / 5.0;
@@ -100,18 +106,23 @@ struct Wall;
 /// Component used to tag the text containing the score.
 struct ScoreText;
 
-/// Event created when player with ID `PlayerId` dashes.
-struct ExplotionEvent(PlayerId);
+/// Event created when player with ID `PlayerId` jumps.
+struct JumpEvent(PlayerId);
 
-/// Tag used on the UI under players that displays the cooldown of the dash.
-struct ExplotionCooldownUI;
+/// Event created when a player dies and its character is removed. This is used
+/// to synchronize the removal of the player character and the cooldown UI for
+/// jump.
+struct DeathEvent(PlayerId);
 
-/// Timer used to restrict how often a player can create an explotion. This timer
-/// will be restarted when a explotion is done and a player isn't allowed to
-/// explode again until this timer runs out.
-struct ExplotionTimer(Timer);
+/// Tag used on the UI under players that displays the cooldown.
+struct CooldownUI;
 
-impl Deref for ExplotionTimer {
+/// Timer used to restrict how often a player can jump. This timer will be
+/// restarted when a jump is done and a player isn't allowed to jump again until
+/// this timer runs out.
+struct JumpCooldownTimer(Timer);
+
+impl Deref for JumpCooldownTimer {
     type Target = Timer;
 
     fn deref(&self) -> &Self::Target {
@@ -119,15 +130,42 @@ impl Deref for ExplotionTimer {
     }
 }
 
-impl DerefMut for ExplotionTimer {
+impl DerefMut for JumpCooldownTimer {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl Default for ExplotionTimer {
+impl Default for JumpCooldownTimer {
     fn default() -> Self {
-        Self(Timer::from_seconds(5.0, false))
+        Self(Timer::from_seconds(JUMP_COOLDOWN_TIME, false))
+    }
+}
+
+/// Timer used when the player is currently jumping. When this timer finished,
+/// the jump will finish for the player.
+struct JumpTimer(Timer);
+
+impl Deref for JumpTimer {
+    type Target = Timer;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for JumpTimer {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Default for JumpTimer {
+    fn default() -> Self {
+        // The timer should start as finished.
+        let mut timer = Timer::from_seconds(JUMP_TIME, false);
+        timer.tick(Duration::from_secs_f32(JUMP_TIME));
+        Self(timer)
     }
 }
 
@@ -174,7 +212,8 @@ pub struct AchtungGamePlugin;
 
 impl Plugin for AchtungGamePlugin {
     fn build(&self, app: &mut AppBuilder) {
-        app.add_event::<ExplotionEvent>()
+        app.add_event::<JumpEvent>()
+            .add_event::<DeathEvent>()
             .add_system_set(
                 SystemSet::on_enter(GAME_STATE)
                     .with_system(reset_votes.system())
@@ -186,7 +225,7 @@ impl Plugin for AchtungGamePlugin {
             .add_system_set(
                 SystemSet::on_update(GAME_STATE)
                     .with_system(handle_disconnect.system().label("vote"))
-                    .with_system(handle_player_input.system().label("vote").label("explode"))
+                    .with_system(handle_player_input.system().label("vote").label("jump"))
                     .with_system(handle_exit_event.system().after("vote"))
                     .with_system(handle_winner.system())
                     .with_system(update_scoreboard.system())
@@ -195,37 +234,55 @@ impl Plugin for AchtungGamePlugin {
                     .with_system(reset_game.system().label("reset").after("death"))
                     .with_system(handle_start_timer.system().label("start").after("reset"))
                     .with_system(
+                        update_jump_timers
+                            .system()
+                            .label("timer")
+                            .after("jump")
+                            .after("reset"),
+                    )
+                    .with_system(handle_player_jump.system().after("timer").before("jump_ui"))
+                    .with_system(update_jump_ui.system().label("jump_ui"))
+                    .with_system(
                         handle_tails
                             .system()
                             .label("tail")
-                            .after("reset")
-                            .after("start"),
+                            .after("start")
+                            .after("timer")
+                            .before("current_tail"),
                     )
-                    .with_system(
-                        handle_current_tails
-                            .system()
-                            .after("reset")
-                            .after("tail")
-                            .after("start"),
-                    )
-                    .with_system(
-                        update_explotion_timers
-                            .system()
-                            .after("explode")
-                            .label("timer"),
-                    )
-                    .with_system(update_explotion_ui.system().after("timer").before("death"))
-                    .with_system(
-                        handle_player_explotion
-                            .system()
-                            .after("explode")
-                            .after("timer"),
-                    ),
+                    .with_system(handle_current_tails.system().label("current_tail")),
             )
             .add_system_set(
                 SystemSet::on_exit(GAME_STATE)
                     .with_system(despawn_system::<AchtungGamePlugin>.system()),
+            )
+            .add_stage_after(
+                CoreStage::PostUpdate,
+                "cooldown_ui_rotation",
+                SystemStage::single_threaded(),
+            )
+            .add_system_to_stage(
+                "cooldown_ui_rotation",
+                update_cooldown_ui_transform.system(),
             );
+    }
+}
+
+// There is currently no good way to handle rotation of a child entity relative
+// to its parent. This is a hack to make it work (see also "cooldown_ui_rotation" stage).
+// See: https://github.com/bevyengine/bevy/issues/1780#issuecomment-939385391
+fn update_cooldown_ui_transform(
+    player_query: Query<&Children, With<JumpCooldownTimer>>,
+    mut cooldown_ui_query: Query<&mut GlobalTransform, With<CooldownUI>>,
+) {
+    for children in player_query.iter() {
+        for child_entity in children.iter() {
+            if let Ok(mut transform) = cooldown_ui_query.get_mut(*child_entity) {
+                transform.rotation = Quat::from_rotation_y(0.0);
+                transform.translation.y =
+                    transform.translation.y - PLAYER_THICKNESS - JUMP_COOLDOWN_HEIGHT;
+            }
+        }
     }
 }
 
@@ -345,42 +402,79 @@ fn update_scoreboard(
     }
 }
 
-fn update_explotion_timers(
+fn update_jump_timers(
     time: Res<Time>,
-    mut explotion_timer_query: Query<&mut ExplotionTimer>,
+    mut player_timer_query: Query<(&mut JumpTimer, &mut JumpCooldownTimer), With<PlayerId>>,
     start_timer_query: Query<&StartTimer>,
 ) {
     if !start_timer_query.single().unwrap().finished() {
         return;
     }
 
-    for mut timer in explotion_timer_query.iter_mut() {
-        timer.tick(time.delta());
+    for (mut jump_timer, mut cooldown_timer) in player_timer_query.iter_mut() {
+        cooldown_timer.tick(time.delta());
+        jump_timer.tick(time.delta());
     }
 }
 
-// TODO: Implement.
-/// Creates an explotion around the player destroying all tails in a radius
-/// around it.
-fn handle_player_explotion(
-    players: Res<Players>,
+/// Handles jump events and sets the jumping players into a "jump-state", reseting
+/// both the jump timer and jump cooldown timer.
+///
+/// Ensures that the graphical representation of the player is changed when a
+/// jump is performed so that the user clearly sees when a jump is in progress.
+/// Also turns of the rapier collisions between snakes when the snake is in
+/// the air.
+fn handle_player_jump(
     mut player_query: Query<(
         &PlayerId,
-        &mut ExplotionTimer,
-        &mut RigidBodyVelocity,
-        &RigidBodyMassProps,
+        &mut JumpTimer,
+        &mut JumpCooldownTimer,
+        &mut Transform,
+        &mut ColliderFlags,
     )>,
-    mut explotion_event_reader: EventReader<ExplotionEvent>,
+    mut jump_event_reader: EventReader<JumpEvent>,
 ) {
-    for ExplotionEvent(event_player_id) in explotion_event_reader.iter() {
+    for JumpEvent(event_player_id) in jump_event_reader.iter() {
         // TODO: More performant way to get player_query from player_id?
-        for (player_id, mut timer, mut velocity, mass) in player_query.iter_mut() {
-            if event_player_id == player_id && timer.finished() {
-                if let Some(player) = players.get(player_id) {
-                    // TODO:
-                    timer.reset();
-                }
+        for (player_id, mut jump_timer, mut cooldown_timer, ..) in player_query.iter_mut() {
+            if event_player_id == player_id && cooldown_timer.finished() {
+                jump_timer.reset();
+                cooldown_timer.reset();
             }
+        }
+    }
+
+    for (_, jump_timer, _, mut transform, mut flags) in player_query.iter_mut() {
+        if jump_timer.just_finished() {
+            // The jump just finished, reset "jumping" settings.
+            transform.scale = Vec3::new(1.0, 1.0, 1.0);
+            transform.translation.z = 0.0;
+
+            *flags = ColliderFlags::default();
+        } else if !jump_timer.finished() {
+            // A jump is in progress. Scale the size of the player to make it
+            // look like it is jumping up in the z-axis (outwards from the screen)
+            // and disable its collision with other snakes.
+
+            // A value between 0 & 1. It will peek at 1 in the exact middle of
+            // the jump and be 0 at the start and end of the jump.
+            let percent = if jump_timer.percent() < 0.5 {
+                jump_timer.percent() * 2.0
+            } else {
+                jump_timer.percent_left() * 2.0
+            };
+            // Logarithim equation which gives ~:
+            // (percent == 0)  =>  ~0.0
+            // (percent == 1)  =>  ~0.5
+            let alg = 0.1 * (percent + 0.01).ln() + 0.5;
+            let scale = 1.0 + alg;
+            transform.scale = Vec3::new(scale, scale, scale);
+            transform.translation.z = 100.0;
+
+            *flags = ColliderFlags {
+                collision_groups: InteractionGroups::none(),
+                ..Default::default()
+            };
         }
     }
 }
@@ -394,16 +488,35 @@ fn handle_tails(
     mut meshes: ResMut<Assets<Mesh>>,
     time: Res<Time>,
     players: Res<Players>,
-    mut player_query: Query<(&PlayerId, &mut TailSpawn, &RigidBodyPosition)>,
+    mut player_query: Query<(&PlayerId, &mut TailSpawn, &RigidBodyPosition, &JumpTimer)>,
     mut colliders: Query<&mut Colliders>,
     start_timer_query: Query<&StartTimer>,
+    mut death_event_reader: EventReader<DeathEvent>,
 ) {
     if !start_timer_query.single().unwrap().finished() {
         return;
     }
 
-    for (player_id, mut tail_spawn, pos) in player_query.iter_mut() {
-        if tail_spawn.timer.tick(time.delta()).just_finished() {
+    let players_just_died = death_event_reader
+        .iter()
+        .map(|e| e.0)
+        .collect::<HashSet<_>>();
+
+    for (player_id, mut tail_spawn, pos, jump_timer) in player_query.iter_mut() {
+        if jump_timer.just_finished() {
+            // We just finished a jump, need to update the place where the
+            // tails should start spawning. This should be changed to the
+            // location where we landed instead of where we jumped from.
+            tail_spawn.prev_x = pos.position.translation.x * RAPIER_SCALE_FACTOR;
+            tail_spawn.prev_y = pos.position.translation.y * RAPIER_SCALE_FACTOR;
+        }
+
+        // Don't spawn a tail if we are currently jumping or if the player died
+        // this tick.
+        if tail_spawn.timer.tick(time.delta()).just_finished()
+            && jump_timer.finished()
+            && !players_just_died.contains(player_id)
+        {
             if let Some(player) = players.get(player_id) {
                 let vertices = current_tail_vertices(&tail_spawn, pos);
                 colliders.single_mut().unwrap().add(&vertices);
@@ -432,7 +545,7 @@ fn handle_current_tails(
     render_pipelines: Res<RenderPipelines>,
     mut meshes: ResMut<Assets<Mesh>>,
     players: Res<Players>,
-    mut player_query: Query<(&PlayerId, &TailSpawn, &RigidBodyPosition)>,
+    mut player_query: Query<(&PlayerId, &TailSpawn, &RigidBodyPosition, &JumpTimer)>,
     cur_tail_query: Query<Entity, With<CurrentTail>>,
     start_timer_query: Query<&StartTimer>,
 ) {
@@ -440,9 +553,14 @@ fn handle_current_tails(
         return;
     }
 
-    for (player_id, tail_spawn, pos) in player_query.iter_mut() {
-        for entity in cur_tail_query.iter() {
-            despawn_entity(&mut commands, entity)
+    for entity in cur_tail_query.iter() {
+        despawn_entity(&mut commands, entity);
+    }
+
+    for (player_id, tail_spawn, pos, jump_timer) in player_query.iter_mut() {
+        // Don't spawn a tail if we are currently jumping.
+        if !jump_timer.finished() {
+            continue;
         }
 
         if let Some(player) = players.get(player_id) {
@@ -487,26 +605,33 @@ fn current_tail_mesh(tail_spawn: &TailSpawn, pos: &RigidBodyPosition, color: Col
     mesh
 }
 
-fn update_explotion_ui(
+fn update_jump_ui(
     mut commands: Commands,
-    mut player_query: Query<(Entity, &mut ExplotionTimer, &Children)>,
-    cooldown_ui_query: Query<(), With<ExplotionCooldownUI>>,
+    mut player_query: Query<(Entity, &PlayerId, &JumpTimer, &JumpCooldownTimer, &Children)>,
+    cooldown_ui_query: Query<(), With<CooldownUI>>,
     start_timer_query: Query<&StartTimer>,
+    mut death_event_reader: EventReader<DeathEvent>,
 ) {
-    // TODO: Implement in the future.
-    if true {
-        return;
-    }
-
     if !start_timer_query.single().unwrap().finished() {
         return;
     }
 
+    let players_just_died = death_event_reader
+        .iter()
+        .map(|e| e.0)
+        .collect::<HashSet<_>>();
+
     let red_color = Color::rgb(1.0, 0.1, 0.1);
     let green_color = Color::rgb(0.1, 1.0, 0.1);
 
-    for (entity, timer, children) in player_query.iter_mut() {
-        if timer.just_finished() {
+    for (entity, player_id, jump_timer, cooldown_timer, children) in player_query.iter_mut() {
+        // Don't want to touch the entities of players that have just died (can
+        // lead to panics).
+        if players_just_died.contains(player_id) {
+            continue;
+        }
+
+        if cooldown_timer.just_finished() {
             // The timer just finished this tick. Create a single "finished"
             // bar in green.
             for child_entity in children.iter() {
@@ -516,28 +641,32 @@ fn update_explotion_ui(
             }
 
             let shape_bundle_finished = GeometryBuilder::build_as(
-                &Shape::rectangle(
-                    EXPLOTION_COOLDOWN_WIDTH,
-                    EXPLOTION_COOLDOWN_HEIGHT,
-                    Vec2::ZERO,
-                ),
+                &Shape::rectangle(JUMP_COOLDOWN_WIDTH, JUMP_COOLDOWN_HEIGHT, Vec2::ZERO),
                 ShapeColors::new(green_color),
                 DrawMode::Fill(FillOptions::DEFAULT),
-                Transform::from_xyz(0.0, PLAYER_THICKNESS, 0.0),
+                Transform::from_xyz(0.0, 0.0, 0.0),
             );
 
             let new_child = commands
                 .spawn_bundle(shape_bundle_finished)
-                .insert(ExplotionCooldownUI)
+                .insert(CooldownUI)
                 .id();
 
             commands.entity(entity).push_children(&[new_child]);
-        } else if timer.finished() {
-            // The timer was already finished before this tick which means that
+        } else if cooldown_timer.finished() {
+            // The timers was already finished before this tick which means that
             // the graphic should already be correct, do nothing.
-        } else {
-            // The timer is currently counting down, update the UI according
-            // to the current timer.
+        } else if jump_timer.elapsed_secs() == 0.0 {
+            // The player just jumped. Remove the cooldown UI. It will be
+            // re-drawn when the jump finishes.
+            for child_entity in children.iter() {
+                if cooldown_ui_query.get(*child_entity).is_ok() {
+                    despawn_entity(&mut commands, *child_entity);
+                }
+            }
+        } else if jump_timer.finished() {
+            // No jump is currently in progress and the cooldown timer is currently
+            // counting down, update the UI according to the current cooldown.
             for child_entity in children.iter() {
                 if cooldown_ui_query.get(*child_entity).is_ok() {
                     despawn_entity(&mut commands, *child_entity);
@@ -546,18 +675,18 @@ fn update_explotion_ui(
 
             let shape_bundle_left = GeometryBuilder::build_as(
                 &Shape::rectangle(
-                    EXPLOTION_COOLDOWN_WIDTH * timer.percent(),
-                    EXPLOTION_COOLDOWN_HEIGHT,
+                    JUMP_COOLDOWN_WIDTH * cooldown_timer.percent(),
+                    JUMP_COOLDOWN_HEIGHT,
                     Vec2::ZERO,
                 ),
                 ShapeColors::new(red_color),
                 DrawMode::Fill(FillOptions::DEFAULT),
-                Transform::from_xyz(0.0, PLAYER_THICKNESS, 0.0),
+                Transform::from_xyz(0.0, 0.0, 0.0),
             );
 
             let new_children = commands
                 .spawn_bundle(shape_bundle_left)
-                .insert(ExplotionCooldownUI)
+                .insert(CooldownUI)
                 .id();
 
             commands.entity(entity).push_children(&[new_children]);
@@ -572,16 +701,17 @@ fn update_explotion_ui(
 /// of the circle will be used to check collision.
 fn handle_death(
     mut commands: Commands,
-    players_query: Query<(Entity, &RigidBodyPosition), With<PlayerId>>,
+    players_query: Query<(Entity, &PlayerId, &JumpTimer, &RigidBodyPosition)>,
     colliders: Query<&Colliders>,
     start_timer_query: Query<&StartTimer>,
+    mut death_event_writer: EventWriter<DeathEvent>,
 ) {
     if !start_timer_query.single().unwrap().finished() {
         return;
     }
 
     let colliders = colliders.single().unwrap();
-    for (entity, pos) in players_query.iter() {
+    for (entity, player_id, jump_timer, pos) in players_query.iter() {
         let x_pos = pos.position.translation.x * RAPIER_SCALE_FACTOR;
         let y_pos = pos.position.translation.y * RAPIER_SCALE_FACTOR;
         let player_angle = pos.position.rotation.angle() + std::f32::consts::FRAC_PI_2;
@@ -601,8 +731,10 @@ fn handle_death(
             amount_of_points,
         );
 
+        let player_is_jumping = !jump_timer.finished();
         for point in points {
-            if colliders.is_collision(point.into()) {
+            if colliders.is_collision(point.into(), player_is_jumping) {
+                death_event_writer.send(DeathEvent(*player_id));
                 despawn_entity(&mut commands, entity);
                 continue;
             }
@@ -612,7 +744,7 @@ fn handle_death(
 
 fn handle_player_input(
     mut players: ResMut<Players>,
-    mut dash_event_writer: EventWriter<ExplotionEvent>,
+    mut jump_event_writer: EventWriter<JumpEvent>,
     mut exit_event_writer: EventWriter<VoteEvent>,
 ) {
     if players.is_changed() {
@@ -620,7 +752,7 @@ fn handle_player_input(
             if let Some(prev_action) = player.previous_action_once() {
                 match prev_action {
                     ActionEvent::APressed => {
-                        dash_event_writer.send(ExplotionEvent(player.id()));
+                        jump_event_writer.send(JumpEvent(player.id()));
                     }
 
                     ActionEvent::BPressed => {
@@ -760,7 +892,8 @@ fn spawn_achtung_player(commands: &mut Commands, player: &Player, mut pos: Vec2,
         .insert_bundle(collider)
         .insert(player.id())
         .insert(tail_spawn)
-        .insert(ExplotionTimer::default())
+        .insert(JumpTimer::default())
+        .insert(JumpCooldownTimer::default())
         .insert(AchtungGamePlugin)
         .insert(ColliderPositionSync::Discrete)
         .with_children(|parent| {
@@ -777,7 +910,7 @@ fn setup_screen_text(mut commands: Commands, players: Res<Players>, fonts: Res<F
     let required_amount = (players.len() / 2) + 1;
 
     let explotion_text = Text::with_section(
-        EXPLOTION_TEXT,
+        JUMP_TEXT,
         TextStyle {
             font: font.clone(),
             font_size,
