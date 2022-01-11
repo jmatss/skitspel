@@ -230,7 +230,7 @@ impl Plugin for AchtungGamePlugin {
                     .with_system(handle_winner.system())
                     .with_system(update_scoreboard.system())
                     .with_system(move_achtung_players.system())
-                    .with_system(handle_death.system().label("death"))
+                    .with_system(handle_death.system().label("death").after("vote"))
                     .with_system(reset_game.system().label("reset").after("death"))
                     .with_system(handle_start_timer.system().label("start").after("reset"))
                     .with_system(
@@ -291,11 +291,13 @@ fn handle_disconnect(
     disconnected_players: Res<DisconnectedPlayers>,
     players_playing: Query<(Entity, &PlayerId)>,
     mut exit_event_writer: EventWriter<VoteEvent>,
+    mut death_event_writer: EventWriter<DeathEvent>,
 ) {
     if !disconnected_players.is_empty() {
         for (entity, player_id) in players_playing.iter() {
             if disconnected_players.contains(player_id) {
                 exit_event_writer.send(VoteEvent::Value(*player_id, false));
+                death_event_writer.send(DeathEvent(*player_id));
                 despawn_entity(&mut commands, entity);
             }
         }
