@@ -315,6 +315,11 @@ fn handle_player_dash(
                 if let Some(player) = players.get(player_id) {
                     let heading_vec = if player.movement_x() != 0.0 || player.movement_y() != 0.0 {
                         Vec2::new(player.movement_x(), player.movement_y()).normalize()
+                    } else if velocity.linvel.x == 0.0 && velocity.linvel.y == 0.0 {
+                        // The player is standing completly still, no idea in
+                        // which direction to dash & would cause NaN when
+                        // normalizing the heading vector. Skip doing a dash.
+                        continue;
                     } else {
                         Vec2::from(velocity.linvel).normalize()
                     };
