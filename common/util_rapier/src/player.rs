@@ -8,8 +8,9 @@ use bevy_prototype_lyon::prelude::{DrawMode, FillOptions, GeometryBuilder, Shape
 use bevy_rapier2d::{
     physics::{ColliderBundle, ColliderPositionSync, RigidBodyBundle},
     prelude::{
-        ColliderMassProps, ColliderMaterial, ColliderShape, ColliderType, RigidBodyActivation,
-        RigidBodyDamping, RigidBodyMassProps, RigidBodyType, RigidBodyVelocity,
+        ColliderFlags, ColliderMassProps, ColliderMaterial, ColliderShape, ColliderType,
+        RigidBodyActivation, RigidBodyDamping, RigidBodyMassProps, RigidBodyType,
+        RigidBodyVelocity,
     },
 };
 use rand::Rng;
@@ -53,11 +54,37 @@ pub fn spawn_player<'a, 'b>(
     commands: &'b mut Commands<'a>,
     player_id: PlayerId,
     color: Color,
-    mut pos: Vec2,
-    mut radius: f32,
+    pos: Vec2,
+    radius: f32,
 ) -> EntityCommands<'a, 'b> {
     let vertex_idx = rand::thread_rng().gen_range(0..VERTEX_AMOUNT.len());
     let vertex_amount = VERTEX_AMOUNT[vertex_idx];
+    spawn_player_with_vertex_amount(
+        commands,
+        player_id,
+        color,
+        pos,
+        radius,
+        vertex_amount,
+        ColliderFlags::default(),
+    )
+}
+
+/// Spawns a player consisting of:
+///  - ShapeBundle
+///  - Collider
+///  - RigidBody
+/// The spawned entity will be tagged with the `player_id`.
+/// The shape of the player is determined by the `vertex_amount`.
+pub fn spawn_player_with_vertex_amount<'a, 'b>(
+    commands: &'b mut Commands<'a>,
+    player_id: PlayerId,
+    color: Color,
+    mut pos: Vec2,
+    mut radius: f32,
+    vertex_amount: usize,
+    flags: ColliderFlags,
+) -> EntityCommands<'a, 'b> {
     let center = Vec2::ZERO;
 
     let shape_bundle = GeometryBuilder::build_as(
@@ -101,6 +128,7 @@ pub fn spawn_player<'a, 'b>(
             restitution: 0.8,
             ..Default::default()
         },
+        flags,
         mass_properties: ColliderMassProps::Density(1.0),
         ..Default::default()
     };

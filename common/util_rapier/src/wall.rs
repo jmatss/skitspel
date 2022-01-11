@@ -2,7 +2,7 @@ use bevy::{
     ecs::{component::Component, system::EntityCommands},
     prelude::{Assets, BuildChildren, Color, Commands, Mesh, MeshBundle, RenderPipelines},
 };
-use bevy_rapier2d::prelude::{ActiveEvents, ColliderType};
+use bevy_rapier2d::prelude::{ColliderFlags, ColliderType};
 
 use skitspel::{GAME_HEIGHT, GAME_WIDTH};
 
@@ -13,6 +13,7 @@ use crate::create_path_with_thickness;
 /// If the given `collider_type` is `ColliderType::Sensor`, the spawned colliders
 /// will be assigned the tag `collider_tag`. If this is a `ColliderType::Solid`,
 /// the `collider_tag` will be ignored.
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_border_walls<'a, 'b, T>(
     commands: &'b mut Commands<'a>,
     meshes: &mut Assets<Mesh>,
@@ -20,6 +21,7 @@ pub fn spawn_border_walls<'a, 'b, T>(
     color: Color,
     thickness: f32,
     collider_type: ColliderType,
+    collider_flags: ColliderFlags,
     collider_tag: Option<T>,
 ) -> EntityCommands<'a, 'b>
 where
@@ -36,18 +38,12 @@ where
         ((-GAME_WIDTH / 2.0) + ht, (-GAME_HEIGHT / 2.0) + ht).into(),
     ];
 
-    let active_events = if let ColliderType::Sensor = collider_type {
-        ActiveEvents::INTERSECTION_EVENTS
-    } else {
-        ActiveEvents::empty()
-    };
-
     let (mesh, colliders) = create_path_with_thickness(
         &vertices,
         color,
         thickness,
         collider_type,
-        active_events,
+        collider_flags,
         true,
     );
 

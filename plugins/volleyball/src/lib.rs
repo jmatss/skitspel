@@ -1,36 +1,48 @@
+use std::{
+    ops::{Deref, DerefMut},
+    time::Duration,
+};
+
 use bevy::{
-    core::Time,
+    core::{Time, Timer},
     math::Vec2,
     prelude::{
         AppBuilder, Assets, BuildChildren, Changed, Color, Commands, Entity, EventReader,
         EventWriter, Handle, HorizontalAlign, IntoSystem, Local, Mesh, MeshBundle,
         ParallelSystemDescriptorCoercion, Plugin, Query, QuerySet, RenderPipelines, Res, ResMut,
-        State, SystemSet, Transform, VerticalAlign, With,
+        State, SystemSet, Transform, VerticalAlign, With, Without,
     },
+    render::mesh::VertexAttributeValues,
     text::{Font, Text, Text2dBundle, TextAlignment, TextSection, TextStyle},
 };
 use bevy_prototype_lyon::prelude::{DrawMode, FillOptions, GeometryBuilder, ShapeColors};
 use bevy_rapier2d::{
     physics::{
         ColliderBundle, ColliderPositionSync, IntoEntity, RapierConfiguration, RigidBodyBundle,
+        RigidBodyPositionSync,
     },
     prelude::{
         ActiveEvents, ColliderFlags, ColliderMassProps, ColliderMaterial, ColliderShape,
-        ColliderType, InteractionGroups, IntersectionEvent, RigidBodyActivation, RigidBodyDamping,
-        RigidBodyMassProps, RigidBodyPosition, RigidBodyType, RigidBodyVelocity,
+        ColliderType, InteractionGroups, IntersectionEvent, RigidBodyActivation, RigidBodyCcd,
+        RigidBodyDamping, RigidBodyMassProps, RigidBodyMassPropsFlags, RigidBodyPosition,
+        RigidBodyType, RigidBodyVelocity,
     },
+    render::RapierRenderPlugin,
 };
 use rand::{prelude::SliceRandom, Rng};
 
 use skitspel::{
     ActionEvent, ConnectedPlayers, DisconnectedPlayers, GameState, Player, PlayerId, Players,
-    GAME_HEIGHT, GAME_WIDTH, PLAYER_RADIUS, RAPIER_SCALE_FACTOR,
+    GAME_HEIGHT, GAME_WIDTH, PLAYER_RADIUS, RAPIER_SCALE_FACTOR, VERTEX_AMOUNT,
 };
 use util_bevy::{
     create_vote_text_sections, despawn_entity, despawn_system, handle_start_timer,
     setup_start_timer, AsBevyColor, Fonts, PlayerVote, Shape, StartTimer, VoteEvent,
 };
-use util_rapier::{create_path_with_thickness, move_players, spawn_border_walls, spawn_player};
+use util_rapier::{
+    create_path_with_thickness, create_polygon_points_with_angle, move_players, spawn_border_walls,
+    spawn_player_with_vertex_amount,
+};
 
 // Regarding collisions between the invisible wall to prevent players from jumping
 // over to the other side: The ball will be only assigned to collision group 0.
@@ -61,10 +73,15 @@ const SPAWN_POSITIONS_RIGHT: [(f32, f32); 5] = [
 struct LeftScoreText;
 struct RightScoreText;
 
+const PUSH_TEXT: &str = "Press A to push\n";
 const EXIT_TEXT: &str = "Press B to go back to main menu";
 
 /// How long the timer between rounds are in seconds.
 const START_TIMER_TIME: usize = 3;
+
+/// The time a push from a player is active. The player can't start another
+/// push event during this period.
+const PUSH_TIME: f32 = 0.5;
 
 /// Used to tag which team a player belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,38 +107,93 @@ struct Goal;
 /// score of the left team and the right usize is the score of the right team.
 struct ScoreCount(usize, usize);
 
+/// Event created when player with ID `PlayerId` presses the push key.
+struct PushEvent(PlayerId);
+
+/// Timer used to restrict how often a player can push.
+struct PushTimer(Timer);
+
+impl Deref for PushTimer {
+    type Target = Timer;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for PushTimer {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Default for PushTimer {
+    fn default() -> Self {
+        // The timer should start as finished.
+        let mut timer = Timer::from_seconds(PUSH_TIME, false);
+        timer.tick(Duration::from_secs_f32(PUSH_TIME));
+        Self(timer)
+    }
+}
+
+/// Tag used for the push "animation" & collider. The PlayerId is the ID of the
+/// player that spawned the push and the Vec2 is the direction vector in the
+/// direction that this push "part" is traveling.
+struct Push(PlayerId, Vec2);
+
+/// Component used to keep track of the shape of a player. This information is
+/// used when creating the "push" animation.
+#[derive(Debug, Clone, Copy)]
+struct PlayerShape {
+    vertex_amount: usize,
+    radius: f32,
+}
+
 #[derive(Clone, Default)]
 pub struct VolleyBallGamePlugin;
 
 impl Plugin for VolleyBallGamePlugin {
     fn build(&self, app: &mut AppBuilder) {
-        app.add_system_set(
-            SystemSet::on_enter(GAME_STATE)
-                .with_system(reset_votes.system())
-                .with_system(setup_gravity.system())
-                .with_system(setup_map.system())
-                .with_system(setup_start_timer::<VolleyBallGamePlugin, START_TIMER_TIME>.system())
-                .with_system(setup_score.system())
-                .with_system(setup_players.system().label("players"))
-                .with_system(setup_screen_text.system().after("players")),
-        )
-        .add_system_set(
-            SystemSet::on_update(GAME_STATE)
-                .with_system(handle_disconnect.system().label("vote"))
-                .with_system(handle_connect.system().label("vote"))
-                .with_system(handle_player_input.system().label("vote"))
-                .with_system(handle_exit_event.system().after("vote"))
-                .with_system(handle_goal.system().label("goal"))
-                .with_system(handle_start_timer.system().label("start").after("goal"))
-                .with_system(update_scoreboard.system())
-                .with_system(move_players.system())
-                .with_system(handle_ball_fall.system().after("start")),
-        )
-        .add_system_set(
-            SystemSet::on_exit(GAME_STATE)
-                .with_system(despawn_system::<VolleyBallGamePlugin>.system())
-                .with_system(teardown_gravity.system()),
-        );
+        app.add_event::<PushEvent>()
+            .add_plugin(RapierRenderPlugin)
+            .add_system_set(
+                SystemSet::on_enter(GAME_STATE)
+                    .with_system(reset_votes.system())
+                    .with_system(setup_gravity.system())
+                    .with_system(setup_map.system())
+                    .with_system(
+                        setup_start_timer::<VolleyBallGamePlugin, START_TIMER_TIME>.system(),
+                    )
+                    .with_system(setup_score.system())
+                    .with_system(setup_players.system().label("players"))
+                    .with_system(setup_screen_text.system().after("players")),
+            )
+            .add_system_set(
+                SystemSet::on_update(GAME_STATE)
+                    .with_system(handle_disconnect.system().label("vote"))
+                    .with_system(handle_connect.system().label("vote"))
+                    .with_system(handle_player_input.system().label("vote").label("push"))
+                    .with_system(handle_exit_event.system().after("vote"))
+                    .with_system(handle_goal.system().label("goal"))
+                    .with_system(handle_start_timer.system().label("start").after("goal"))
+                    .with_system(update_scoreboard.system())
+                    .with_system(move_players.system())
+                    .with_system(handle_ball_fall.system().after("start"))
+                    .with_system(update_push_timers.system().label("timer").after("push"))
+                    .with_system(
+                        handle_spawn_push
+                            .system()
+                            .label("spawn_push")
+                            .after("start")
+                            .after("timer"),
+                    )
+                    .with_system(handle_push.system().after("spawn_push")),
+            )
+            .add_system_set(
+                SystemSet::on_exit(GAME_STATE)
+                    .with_system(despawn_system::<VolleyBallGamePlugin>.system())
+                    .with_system(teardown_gravity.system()),
+            );
     }
 }
 
@@ -266,9 +338,10 @@ fn handle_goal(
     mut commands: Commands,
     mut intersection_event: EventReader<IntersectionEvent>,
     mut players: ResMut<Players>,
-    players_playing: Query<(Entity, &PlayerId, &Team)>,
+    players_playing: Query<(Entity, &PlayerId, &Team), Without<Push>>,
     mut score_count: Query<&mut ScoreCount>,
     mut ball_query: Query<(&mut RigidBodyPosition, &mut RigidBodyVelocity), With<Ball>>,
+    push_query: Query<Entity, With<Push>>,
     goal_query: Query<&Team, With<Goal>>,
     mut start_timer_query: Query<&mut StartTimer>,
 ) {
@@ -300,8 +373,15 @@ fn handle_goal(
                 }
             };
 
-            // Despawn the old players and respawn them with new shapes and on
-            // their side of the field.
+            // TODO: Can there be a panic if we remove it here and in the same
+            //       frame the PushTimer finishes and the `handle_push`
+            //       despawn the entity as well?
+            // Remove the currently active pushes.
+            for entity in push_query.iter() {
+                despawn_entity(&mut commands, entity);
+            }
+
+            // Despawn the old players and respawn them with new shapes.
             for (entity, ..) in players_playing.iter() {
                 despawn_entity(&mut commands, entity);
             }
@@ -338,15 +418,142 @@ fn handle_goal(
 
 fn handle_player_input(
     mut players: ResMut<Players>,
+    mut push_event_writer: EventWriter<PushEvent>,
     mut exit_event_writer: EventWriter<VoteEvent>,
 ) {
     if players.is_changed() {
         for player in players.values_mut() {
             if let Some(prev_action) = player.previous_action_once() {
-                if prev_action == ActionEvent::BPressed {
-                    exit_event_writer.send(VoteEvent::Flip(player.id()));
+                match prev_action {
+                    ActionEvent::APressed => {
+                        push_event_writer.send(PushEvent(player.id()));
+                    }
+
+                    ActionEvent::BPressed => {
+                        exit_event_writer.send(VoteEvent::Flip(player.id()));
+                    }
+
+                    _ => (),
                 }
             }
+        }
+    }
+}
+
+fn update_push_timers(
+    time: Res<Time>,
+    mut push_timer_query: Query<&mut PushTimer>,
+    start_timer_query: Query<&StartTimer>,
+) {
+    if !start_timer_query.single().unwrap().finished() {
+        return;
+    }
+
+    for mut timer in push_timer_query.iter_mut() {
+        timer.tick(time.delta());
+    }
+}
+
+/// Handles the spawning of pushes from players.
+#[allow(clippy::too_many_arguments)]
+fn handle_spawn_push(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    render_pipelines: Res<RenderPipelines>,
+    players: Res<Players>,
+    mut player_query: Query<(
+        &PlayerId,
+        &mut PushTimer,
+        &RigidBodyVelocity,
+        &RigidBodyPosition,
+        &PlayerShape,
+    )>,
+    start_timer_query: Query<&StartTimer>,
+    mut push_event_reader: EventReader<PushEvent>,
+) {
+    if !start_timer_query.single().unwrap().finished() {
+        return;
+    }
+
+    for PushEvent(event_player_id) in push_event_reader.iter() {
+        // TODO: More performant way to get player_query from player_id?
+        for (player_id, mut push_timer, player_vel, player_pos, player_shape) in
+            player_query.iter_mut()
+        {
+            // Don't spawn a new one if the timer just finished. The old one needs
+            // one tick to be despawned.
+            if event_player_id == player_id && push_timer.finished() && !push_timer.just_finished()
+            {
+                push_timer.reset();
+
+                if let Some(player) = players.get(player_id) {
+                    spawn_push(
+                        &mut commands,
+                        &mut meshes,
+                        &render_pipelines,
+                        player,
+                        *player_shape,
+                        *player_vel,
+                        *player_pos,
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Handles the movement and animation of pushes. Also despawn the pushes after
+/// the `PushTimer` finishes.
+fn handle_push(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    player_query: Query<(&PlayerId, &PushTimer)>,
+    mut push_query: Query<(Entity, &Push, &mut RigidBodyVelocity, &Handle<Mesh>)>,
+    start_timer_query: Query<&StartTimer>,
+) {
+    if !start_timer_query.single().unwrap().finished() {
+        return;
+    }
+
+    let delta_tick = time.delta_seconds();
+    for (player_id, push_timer) in player_query.iter() {
+        if push_timer.just_finished() {
+            // The push just finished, remove the push "animation".
+            remove_push(&mut commands, *player_id, &mut push_query);
+        } else if !push_timer.finished() {
+            // Value between 0 & 1.
+            let elapsed = push_timer.percent();
+            let alg = (-2.0 * elapsed.powf(2.0) + 2.0) * 2000.0;
+            for (_, Push(push_player_id, heading_vec), mut push_vel, mesh) in push_query.iter_mut()
+            {
+                if player_id == push_player_id {
+                    push_vel.linvel = (*heading_vec * alg * delta_tick).into();
+
+                    // Decrease opacity of the push animation.
+                    if let Some(VertexAttributeValues::Float4(colors)) = meshes
+                        .get_mut(mesh)
+                        .map(|m| m.attribute_mut(Mesh::ATTRIBUTE_COLOR))
+                        .flatten()
+                    {
+                        for color in colors {
+                            color[3] = push_timer.percent_left();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn remove_push(
+    commands: &mut Commands,
+    player_id: PlayerId,
+    push_query: &mut Query<(Entity, &Push, &mut RigidBodyVelocity, &Handle<Mesh>)>,
+) {
+    for (entity, expand_tag, ..) in push_query.iter_mut() {
+        if expand_tag.0 == player_id {
+            despawn_entity(commands, entity);
         }
     }
 }
@@ -485,15 +692,118 @@ fn reset_votes(mut exit_event_writer: EventWriter<VoteEvent>) {
 }
 
 fn spawn_volleyball_player(commands: &mut Commands, player: &Player, spawn_pos: Vec2, team: Team) {
-    spawn_player(
+    // Prevent round shape.
+    let vertex_idx = rand::thread_rng().gen_range(0..VERTEX_AMOUNT.len() - 1);
+    let vertex_amount = VERTEX_AMOUNT[vertex_idx + 1];
+
+    // The second group will be used by the "push" colliders. The player shouldn't
+    // be able to collide with them.
+    let collider_flags = ColliderFlags {
+        collision_groups: InteractionGroups::new(!0b10, !0b10),
+        ..Default::default()
+    };
+
+    spawn_player_with_vertex_amount(
         commands,
         player.id(),
         player.color().as_bevy(),
         spawn_pos,
         PLAYER_RADIUS,
+        vertex_amount,
+        collider_flags,
     )
+    .insert(PlayerShape {
+        vertex_amount,
+        radius: PLAYER_RADIUS,
+    })
     .insert(team)
+    .insert(PushTimer::default())
     .insert(VolleyBallGamePlugin);
+}
+
+/// There is no way to scale a collider in bevy-rapier. We therefore have to
+/// remove the old entity and create a copy with changed size.
+fn spawn_push(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    render_pipelines: &RenderPipelines,
+    player: &Player,
+    player_shape: PlayerShape,
+    player_vel: RigidBodyVelocity,
+    player_pos: RigidBodyPosition,
+) {
+    let thickness = 3.0;
+    let angle = player_pos.position.rotation.angle();
+    let pos = Vec2::new(
+        player_pos.position.translation.x * RAPIER_SCALE_FACTOR,
+        player_pos.position.translation.y * RAPIER_SCALE_FACTOR,
+    );
+
+    let points = create_polygon_points_with_angle(
+        player_shape.vertex_amount,
+        player_shape.radius,
+        pos,
+        angle,
+    );
+
+    for i in 0..points.len() {
+        let p1 = points[i];
+        let p2 = points[(i + 1) % points.len()];
+        let mut half_p = Vec2::new((p1.x + p2.x) / 2.0, (p1.y + p2.y) / 2.0);
+        let heading_vec = Vec2::new(half_p.x - pos.x, half_p.y - pos.y).normalize();
+
+        let (mesh, colliders) = create_path_with_thickness(
+            &[Vec2::new(p1.x, p1.y), Vec2::new(p2.x, p2.y)],
+            player.color().as_bevy(),
+            thickness,
+            ColliderType::Solid,
+            // The second group will be used by the "push" colliders. Should only be able
+            // to interact with the ball (group 1).
+            ColliderFlags {
+                collision_groups: InteractionGroups::new(0b10, 0b1),
+                ..Default::default()
+            },
+            false,
+        );
+
+        half_p /= RAPIER_SCALE_FACTOR;
+
+        let rigid_body = RigidBodyBundle {
+            body_type: RigidBodyType::Dynamic,
+            damping: RigidBodyDamping {
+                linear_damping: 0.0,
+                angular_damping: 1.0,
+            },
+            ccd: RigidBodyCcd {
+                ccd_enabled: true,
+                ..Default::default()
+            },
+            // Spawn the push with the velocity of the player to make the movement
+            // more "fluid" and look more "realistic".
+            velocity: player_vel,
+            mass_properties: RigidBodyMassPropsFlags::ROTATION_LOCKED.into(),
+            activation: RigidBodyActivation::cannot_sleep(),
+            ..Default::default()
+        };
+
+        let mut entity_commands = commands.spawn_bundle(rigid_body);
+
+        entity_commands
+            .insert_bundle(MeshBundle {
+                mesh: meshes.add(mesh),
+                render_pipelines: render_pipelines.clone(),
+                ..Default::default()
+            })
+            .insert(Push(player.id(), heading_vec))
+            .insert(VolleyBallGamePlugin)
+            .insert(RigidBodyPositionSync::Discrete);
+
+        for collider in colliders.into_iter() {
+            entity_commands.with_children(|parent| {
+                parent.spawn_bundle(collider);
+            });
+        }
+    }
 }
 
 fn setup_screen_text(mut commands: Commands, players: Res<Players>, fonts: Res<Fonts>) {
@@ -501,9 +811,33 @@ fn setup_screen_text(mut commands: Commands, players: Res<Players>, fonts: Res<F
     let bold_font_size = 128.0;
     let regular_font = fonts.regular.clone();
     let regular_font_size = 24.0;
+    let font_color = Color::WHITE;
 
     let empty_player_vote = PlayerVote::default();
     let required_amount = (players.len() / 2) + 1;
+
+    let expand_text = Text::with_section(
+        PUSH_TEXT,
+        TextStyle {
+            font: regular_font.clone(),
+            font_size: regular_font_size,
+            color: font_color,
+        },
+        TextAlignment {
+            vertical: VerticalAlign::Bottom,
+            horizontal: HorizontalAlign::Center,
+        },
+    );
+
+    let expand_text_bundle = Text2dBundle {
+        text: expand_text,
+        transform: Transform::from_xyz(0.0, GAME_HEIGHT / 4.0 - regular_font_size, 0.0),
+        ..Default::default()
+    };
+
+    commands
+        .spawn_bundle(expand_text_bundle)
+        .insert(VolleyBallGamePlugin);
 
     let exit_text = Text {
         sections: create_vote_text_sections(
@@ -607,6 +941,12 @@ fn setup_map(
     let grey_color = Color::rgb(0.3, 0.3, 0.3);
     let white_color = Color::rgb(1.0, 1.0, 1.0);
 
+    // No interaction with the push colliders.
+    let collider_flags = ColliderFlags {
+        collision_groups: InteractionGroups::new(!0b0, !0b10),
+        ..Default::default()
+    };
+
     spawn_border_walls(
         &mut commands,
         &mut meshes,
@@ -614,6 +954,7 @@ fn setup_map(
         grey_color,
         wall_thickness,
         ColliderType::Solid,
+        collider_flags,
         Option::<VolleyBallGamePlugin>::None,
     )
     .insert(VolleyBallGamePlugin);
@@ -631,7 +972,7 @@ fn setup_map(
         grey_color,
         net_thickness,
         ColliderType::Solid,
-        ActiveEvents::empty(),
+        collider_flags,
         false,
     );
 
@@ -658,17 +999,19 @@ fn setup_map(
         white_color,
         net_thickness,
         ColliderType::Solid,
-        ActiveEvents::empty(),
+        // Should not interact with group 0 or 1 (the ball group and the push
+        // group respectively).
+        ColliderFlags {
+            collision_groups: InteractionGroups::new(!0b11, !0b11),
+            ..Default::default()
+        },
         false,
     );
 
     let mut entity_commands = commands.spawn();
 
-    colliders.into_iter().for_each(|mut collider| {
+    colliders.into_iter().for_each(|collider| {
         entity_commands.with_children(|parent| {
-            // Should not interact with group 0 (the group used for the ball).
-            collider.flags.collision_groups.memberships &= !0b1;
-            collider.flags.collision_groups.filter &= !0b1;
             parent.spawn_bundle(collider);
         });
     });
@@ -780,6 +1123,10 @@ fn spawn_post(commands: &mut Commands, mut pos: Vec2, mut radius: f32, color: Co
 
     let collider = ColliderBundle {
         collider_type: ColliderType::Solid,
+        flags: ColliderFlags {
+            collision_groups: InteractionGroups::new(!0b0, !0b10),
+            ..Default::default()
+        },
         shape: ColliderShape::ball(radius),
         material: ColliderMaterial {
             friction: 0.3,
@@ -816,6 +1163,10 @@ fn spawn_ball(commands: &mut Commands, mut radius: f32, color: Color) {
             linear_damping: 0.5,
             angular_damping: 0.5,
         },
+        ccd: RigidBodyCcd {
+            ccd_enabled: true,
+            ..Default::default()
+        },
         position: default_pos.into(),
         activation: RigidBodyActivation::cannot_sleep(),
         ..Default::default()
@@ -825,7 +1176,7 @@ fn spawn_ball(commands: &mut Commands, mut radius: f32, color: Color) {
         collider_type: ColliderType::Solid,
         shape: ColliderShape::ball(radius),
         flags: ColliderFlags {
-            collision_groups: InteractionGroups::new(0b1, 0b1),
+            collision_groups: InteractionGroups::new(0b1, 0b11),
             ..Default::default()
         },
         material: ColliderMaterial {

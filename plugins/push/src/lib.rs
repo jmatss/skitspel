@@ -418,6 +418,7 @@ fn setup_map(
         red_color,
         10.0,
         ColliderType::Sensor,
+        ActiveEvents::INTERSECTION_EVENTS.into(),
         Some(DeathCollider),
     )
     .insert(PushGamePlugin);

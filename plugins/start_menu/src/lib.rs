@@ -10,7 +10,7 @@ use bevy::{
     render::mesh::VertexAttributeValues,
     text::{Font, Text, Text2dBundle, TextAlignment, TextSection, TextStyle},
 };
-use bevy_rapier2d::prelude::ColliderType;
+use bevy_rapier2d::prelude::{ColliderFlags, ColliderType};
 
 use skitspel::{
     ActionEvent, ConnectedPlayers, DisconnectedPlayers, GameState, Player, PlayerId, Players,
@@ -309,6 +309,7 @@ fn setup_menu(
         grey_color,
         10.0,
         ColliderType::Solid,
+        ColliderFlags::default(),
         Option::<MenuPlugin>::None,
     )
     .insert(MenuPlugin);

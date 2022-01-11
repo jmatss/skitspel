@@ -992,7 +992,7 @@ fn spawn_rink_wall(
         color,
         thickness,
         ColliderType::Solid,
-        ActiveEvents::empty(),
+        ColliderFlags::default(),
         false,
     );
 
@@ -1033,7 +1033,7 @@ fn spawn_rink_corner(
         color,
         thickness,
         ColliderType::Solid,
-        ActiveEvents::empty(),
+        ColliderFlags::default(),
         false,
     );
 

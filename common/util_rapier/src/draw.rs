@@ -9,8 +9,7 @@ use bevy_rapier2d::{
     na::Point2,
     physics::ColliderBundle,
     prelude::{
-        ActiveEvents, ColliderFlags, ColliderMassProps, ColliderMaterial, ColliderShape,
-        ColliderType, Real,
+        ColliderFlags, ColliderMassProps, ColliderMaterial, ColliderShape, ColliderType, Real,
     },
 };
 
@@ -55,6 +54,17 @@ pub fn create_circle_points(
 /// This function can be used to create a similar shaped polygon that can be
 /// used in rapier as ex. a collider.
 pub fn create_polygon_points(sides: usize, radius: f32, center: Vec2) -> Vec<Point2<Real>> {
+    create_polygon_points_with_angle(sides, radius, center, 0.0)
+}
+
+/// Returns the points for a polygon with `sides` sides. The points is rotated
+/// `start_angle` radians.
+pub fn create_polygon_points_with_angle(
+    sides: usize,
+    radius: f32,
+    center: Vec2,
+    start_angle: f32,
+) -> Vec<Point2<Real>> {
     use std::f32::consts::PI;
     assert!(sides > 2, "Polygons must have at least 3 sides");
     let n = sides as f32;
@@ -64,7 +74,7 @@ pub fn create_polygon_points(sides: usize, radius: f32, center: Vec2) -> Vec<Poi
     let mut points = Vec::with_capacity(sides);
     let step = 2.0 * PI / n;
     for i in 0..sides {
-        let cur_angle = (i as f32).mul_add(step, offset);
+        let cur_angle = start_angle + (i as f32).mul_add(step, offset);
         let x = radius.mul_add(cur_angle.cos(), center.x);
         let y = radius.mul_add(cur_angle.sin(), center.y);
         points.push([x, y].into());
@@ -83,7 +93,7 @@ pub fn create_path_with_thickness(
     color: Color,
     line_thickness: f32,
     collider_type: ColliderType,
-    active_events: ActiveEvents,
+    collider_flags: ColliderFlags,
     closed: bool,
 ) -> (Mesh, Vec<ColliderBundle>) {
     let new_vertices = vertices_with_thickness(vertices, line_thickness, closed);
@@ -104,10 +114,7 @@ pub fn create_path_with_thickness(
 
         colliders.push(ColliderBundle {
             collider_type,
-            flags: ColliderFlags {
-                active_events,
-                ..Default::default()
-            },
+            flags: collider_flags,
             shape: ColliderShape::triangle(
                 [a.x / RAPIER_SCALE_FACTOR, a.y / RAPIER_SCALE_FACTOR].into(),
                 [b.x / RAPIER_SCALE_FACTOR, b.y / RAPIER_SCALE_FACTOR].into(),

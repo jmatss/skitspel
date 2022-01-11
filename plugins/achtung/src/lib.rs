@@ -23,7 +23,7 @@ use bevy_rapier2d::{
     na::UnitComplex,
     physics::{ColliderBundle, ColliderPositionSync, RigidBodyBundle},
     prelude::{
-        ColliderFlags, ColliderShape, ColliderType, InteractionGroups, Isometry,
+        ActiveEvents, ColliderFlags, ColliderShape, ColliderType, InteractionGroups, Isometry,
         RigidBodyActivation, RigidBodyDamping, RigidBodyPosition, RigidBodyType, RigidBodyVelocity,
     },
 };
@@ -979,6 +979,7 @@ fn setup_map(
         red_color,
         TAIL_THICKNESS,
         ColliderType::Sensor,
+        ActiveEvents::INTERSECTION_EVENTS.into(),
         Some(Wall),
     )
     .insert(AchtungGamePlugin);
