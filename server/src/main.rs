@@ -35,6 +35,7 @@ use hockey::HockeyGamePlugin;
 use network::{
     EventMessage, EventTimer, GeneralEvent, NetworkContext, NetworkEvent, NetworkPlugin,
 };
+use pong::PongGamePlugin;
 use push::PushGamePlugin;
 use selection_menu::GameSelectionPlugin;
 use start_menu::MenuPlugin;
@@ -129,6 +130,7 @@ fn main() -> io::Result<()> {
         .add_plugin(HockeyGamePlugin)
         .add_plugin(VolleyBallGamePlugin)
         .add_plugin(AchtungGamePlugin)
+        .add_plugin(PongGamePlugin)
         .add_state(GameState::StartMenu)
         .add_startup_system(common_setup.system())
         .add_system(camera_scaling_fix.system())
@@ -217,6 +219,21 @@ pub fn common_setup(
                 .add(
                     Texture::from_buffer(
                         include_bytes!("..\\assets\\achtung.png"),
+                        ImageType::Extension("png"),
+                    )
+                    .unwrap(),
+                )
+                .into(),
+        ),
+    });
+    games.push(Game {
+        name: "Pong",
+        game_state: GameState::PongGame,
+        screenshot: materials.add(
+            textures
+                .add(
+                    Texture::from_buffer(
+                        include_bytes!("..\\assets\\pong.png"),
                         ImageType::Extension("png"),
                     )
                     .unwrap(),

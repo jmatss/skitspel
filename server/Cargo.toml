@@ -20,6 +20,7 @@ achtung = { path = "../plugins/achtung" }
 hockey = { path = "../plugins/hockey" }
 skitspel = { path = "../common/skitspel" }
 network = { path = "../plugins/network" }
+pong = { path = "../plugins/pong" }
 push = { path = "../plugins/push" }
 selection_menu = { path = "../plugins/selection_menu" }
 start_menu = { path = "../plugins/start_menu" }
