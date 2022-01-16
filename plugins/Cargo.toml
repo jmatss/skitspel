@@ -3,6 +3,7 @@ members = [
     "achtung",
     "hockey",
     "network",
+    "pong",
     "push",
     "selection_menu",
     "start_menu",

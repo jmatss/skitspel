@@ -227,7 +227,7 @@ impl Plugin for AchtungGamePlugin {
                     .with_system(handle_disconnect.system().label("vote"))
                     .with_system(handle_player_input.system().label("vote").label("jump"))
                     .with_system(handle_exit_event.system().after("vote"))
-                    .with_system(handle_winner.system())
+                    .with_system(handle_winner.system().before("reset"))
                     .with_system(update_scoreboard.system())
                     .with_system(move_achtung_players.system())
                     .with_system(handle_death.system().label("death").after("vote"))
