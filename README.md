@@ -1,14 +1,14 @@
 # Skitspel
-A multiplayer game created to play with my colleagues at our weekly "fredagsfika". The game is ran on a computer that shares its screen. The clients connects through a webbrowser and communicates with the server over websockets.
+A multiplayer game created to play with my colleagues at our weekly "fredagsfika". The game is ran on a computer that shares its screen. The clients connects through a web browser and communicates with the server over websockets.
 
-I currently have a client hosted remotely at: [skitspel.2a.se](https://skitspel.2a.se/). If the link doesn't work when you are reading this, you can simply launch the basic `client` locally in your browser with no problems.
+I currently have a client hosted remotely at: [skitspel.2a.se](https://skitspel.2a.se/). If the link doesn't work when you are reading this, you can simply launch the `client` locally in your browser with no problems.
 
 
 # Build
 ```
 cargo build --release
 ```
-Create an executable located in `.../server/target/release/server.exe` that can be ran to launch the game server.
+Creates an executable located in `.../server/target/release/server.exe` that can be ran to launch the game server.
 
 
 # Usage
@@ -22,7 +22,7 @@ OPTIONS:
     -n, --nocert         Specify if no TLS should be used.
     -p, --port <PORT>    The port number to listen on.
 ```
-One of the options `cert` or `nocert` must be specified. If `cert` is specified the server will use TLS when communicating with the clients. `nocert` indicates that no TLs should be used when communicating with the clients.
+One of the options `cert` or `nocert` must be specified. If `cert` is specified the server will use TLS when communicating with the clients. `nocert` indicates that no TLS should be used when communicating with the clients.
 
 OBS! All connections from private/local IPv4 or IPv6 addresses will NOT use TLS even when `cert` is specified on the server. So in these cases the clients must make sure to connect without TLS (done by unchecking the `TLS` checkbox when connecting to the server).
 
