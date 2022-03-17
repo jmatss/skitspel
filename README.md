@@ -1,20 +1,5 @@
 # Skitspel
 A multiplayer game created to play with my colleagues at our weekly "fredagsfika". The game is ran on a computer that shares its screen. The clients connects through a webbrowser and communicates with the server over websockets.
-All games are implemented to support atleast 9 players at the same time.
-
-<p align="center">
-    <img src="https://github.com/jmatss/skitspel/blob/master/media/server.png?raw=true">
-</p>
-<p align="center">
-    <i>Start screen</i>
-</p>
-
-<p align="center">
-    <img src="https://github.com/jmatss/skitspel/blob/master/media/client.png?raw=true">
-</p>
-<p align="center">
-    <i>View of client before/after connecting</i>
-</p>
 
 I currently have a client hosted remotely at: [skitspel.2a.se](https://skitspel.2a.se/). If the link doesn't work when you are reading this, you can simply launch the basic `client` locally in your browser with no problems.
 
@@ -43,6 +28,8 @@ OBS! All connections from private/local IPv4 or IPv6 addresses will NOT use TLS 
 
 
 # Games
+
+The game consists of multiple mini-games. All games are implemented to support atleast 9 players at the same time.
 
 ## Push
 <p align="center">
