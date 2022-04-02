@@ -52,7 +52,7 @@ The players are divided evenly into two teams; team left and team right. A point
 The players are divided evenly into two teams; team left and team right. A point is given to all players of a team that manages to get the ball to touch the other teams floor.
 
 
-## Achtung dies Kurve
+## Achtung die Kurve
 <p align="center">
     <img src="https://github.com/jmatss/skitspel/blob/master/media/achtung.png?raw=true">
 </p>
