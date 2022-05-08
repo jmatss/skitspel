@@ -14,7 +14,9 @@ var connectingToWebsocket = false;
 
 function navigateToConnect() {
     document.body.innerHTML = 
-          '<div id="header">SKITSPEL</div>'
+          '<div id="header">'
+        + '    <a href="https://github.com/jmatss/skitspel" target="_blank">SKITSPEL <img src="github_logo.png" width="26px"></a>'
+        + '</div>'
         + '<div id="login-form">'
         + '    <div class="login-field">'
         + '        <div class="login-label">TLS</div>'
